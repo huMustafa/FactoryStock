@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Stock In - FactoryStock{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <i class="fas fa-plus-circle text-green-600"></i>
+            Stock In
+        </h1>
+        <p class="text-gray-600 mt-1">Record new stock arriving from production surplus</p>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow p-6">
+        <form method="POST" class="space-y-6">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <!-- Item Type & Material -->
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Item Type *</label>
+                    <select name="type" id="itemType" required onchange="toggleDimensions()"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select type...</option>
+                        <option value="roll">Roll</option>
+                        <option value="sheet">Sheet</option>
+                        <option value="bag">Bag</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Material *</label>
+                    <select name="material" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select material...</option>
+                        <option value="PE">PE</option>
+                        <option value="HDPE">HDPE</option>
+                        <option value="PP">PP</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Dimensions -->
+            <div class="grid grid-cols-3 gap-6">
+                <div id="widthField">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Width (inches) *</label>
+                    <input type="number" name="width" step="0.1" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div id="lengthField" style="display:none;">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Length (inches) *</label>
+                    <input type="number" name="length" step="0.1" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Micron (e.g., 60/120) *</label>
+                    <input type="text" name="micron" placeholder="60/120" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Enter single or double (e.g., 60 or 60/120)</p>
+                </div>
+            </div>
+            
+            <!-- Quantity & Weight -->
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Quantity (pieces) *</label>
+                    <input type="number" name="quantity" step="0.01" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Total Weight (kg) *</label>
+                    <input type="number" name="weight" step="0.01" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            
+            <!-- Printed Toggle -->
+            <div>
+                <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" name="printed" id="printedToggle" onchange="togglePrintedFields()"
+                           class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                    <span class="text-sm font-medium text-gray-700">Printed Item</span>
+                </label>
+            </div>
+            
+            <!-- Printed Fields (Conditional) -->
+            <div id="printedFields" class="space-y-4 hidden pl-8 border-l-4 border-blue-200">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Print Details</label>
+                    <input type="text" name="print_details" placeholder="e.g., Logo + Product Name"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Buyer Name</label>
+                    <input type="text" name="buyer" placeholder="e.g., IKEA, Walmart, Gul Ahmed"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            
+            <!-- Zone & Date -->
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Warehouse Zone *</label>
+                    <select name="zone" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select zone...</option>
+                        {% for zone in zones %}
+                        <option value="{{ zone.code }}">{{ zone.code }} - {{ zone.description or 'No description' }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="flex gap-4 pt-4 border-t">
+                <button type="submit"
+                        class="flex-1 bg-green-600 text-white py-3 px-6 rounded-lg hover:bg-green-700 font-medium transition-colors">
+                    <i class="fas fa-save mr-2"></i>Save Stock
+                </button>
+                <a href="{{ url_for('stock.stock_directory') }}"
+                   class="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium transition-colors">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleDimensions() {
+    const type = document.getElementById('itemType').value;
+    const widthField = document.getElementById('widthField');
+    const lengthField = document.getElementById('lengthField');
+    const widthInput = widthField.querySelector('input');
+    const lengthInput = lengthField.querySelector('input');
+    
+    if (type === 'bag') {
+        widthField.style.display = 'block';
+        lengthField.style.display = 'block';
+        widthInput.setAttribute('placeholder', 'Width');
+        lengthInput.setAttribute('placeholder', 'Length');
+        widthInput.previousElementSibling.textContent = 'Width (inches) *';
+    } else if (type === 'roll' || type === 'sheet') {
+        widthField.style.display = 'block';
+        lengthField.style.display = 'none';
+        widthInput.setAttribute('placeholder', 'Width');
+        widthInput.previousElementSibling.textContent = 'Width (inches) *';
+    } else {
+        widthField.style.display = 'none';
+        lengthField.style.display = 'none';
+    }
+}
+
+function togglePrintedFields() {
+    const checkbox = document.getElementById('printedToggle');
+    const fields = document.getElementById('printedFields');
+    if (checkbox.checked) {
+        fields.classList.remove('hidden');
+    } else {
+        fields.classList.add('hidden');
+    }
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,13 @@
+# Ignore the database and instance folder
+*.db
+instance/
+
+# Ignore virtual environment
+venv/
+
+# Ignore environment variables (contains your SECRET_KEY!)
+.env
+
+# Ignore Python cache
+__pycache__/
+*.pyc

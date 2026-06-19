@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Directory - FactoryStock{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900">Stock Directory</h1>
+        <p class="text-gray-600 mt-1">Real-time inventory of finished goods</p>
+    </div>
+    
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow p-4">
+        <form method="GET" class="flex flex-wrap gap-4">
+            <div class="flex-1 min-w-64">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input type="text" name="search" value="{{ search_term }}"
+                           placeholder="Search by buyer, material, print details..."
+                           class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+            
+            <select name="material" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="all">All Materials</option>
+                {% for mat in materials %}
+                <option value="{{ mat }}" {% if selected_material == mat %}selected{% endif %}>{{ mat }}</option>
+                {% endfor %}
+            </select>
+            
+            <select name="type" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="all">All Types</option>
+                {% for type in types %}
+                <option value="{{ type }}" {% if selected_type == type %}selected{% endif %}>{{ type.capitalize() }}</option>
+                {% endfor %}
+            </select>
+            
+            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                Filter
+            </button>
+        </form>
+    </div>
+    
+    <!-- Stock Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Details</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Specs</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Available Qty</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weight</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zone</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        {% if current_user.role == 'supervisor' %}
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Request</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for stock in stocks %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ stock.item.display_name }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="text-sm text-blue-600 font-medium">{{ stock.item.material }} {{ stock.item.item_type.capitalize() }}</div>
+                            <div class="text-xs text-gray-500">{{ stock.item.specs }}</div>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <span class="text-lg font-semibold text-gray-900">{{ "%.0f"|format(stock.quantity_pieces) }}</span>
+                            <span class="text-sm text-gray-500">pcs</span>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <span class="text-sm font-medium">{{ "%.0f"|format(stock.quantity_kg) }}</span>
+                            <span class="text-sm text-gray-500">kg</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded">{{ stock.zone_code }}</span>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-500">
+                            {{ stock.date_received|format_date }}
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <!-- Details Button using data attributes for safe quote handling -->
+                            <button class="details-btn px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
+                                    data-title="{{ stock.item.display_name }}"
+                                    data-print="{{ stock.item.print_details or 'No print details' }}"
+                                    data-buyer="{{ stock.item.buyer_name or 'Not assigned' }}"
+                                    data-specs="{{ stock.item.specs }}">
+                                <i class="fas fa-eye mr-1"></i> Details
+                            </button>
+                        </td>
+                        {% if current_user.role == 'supervisor' %}
+                        <td class="px-6 py-4">
+                            <button onclick="openRequestModal({{ stock.item.id }}, '{{ stock.item.display_name }}')"
+                                    class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                                Request
+                            </button>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="{% if current_user.role == 'supervisor' %}8{% else %}7{% endif %}" class="px-6 py-12 text-center text-gray-500">
+                            <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
+                            <p>No stock found</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- DETAILS MODAL (For all users)              -->
+<!-- ========================================== -->
+<div id="detailsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+        <!-- Modal Header -->
+        <div class="bg-blue-600 px-6 py-4 flex justify-between items-center">
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fas fa-info-circle"></i> Item Details
+            </h3>
+            <button class="close-details-modal text-white hover:text-gray-200">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <!-- Modal Body -->
+        <div class="p-6 space-y-4">
+            <div>
+                <p class="text-xs font-semibold text-gray-500 uppercase">Item Name</p>
+                <p id="modalTitle" class="text-lg font-bold text-gray-900 mt-1"></p>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase">Specifications</p>
+                    <p id="modalSpecs" class="text-sm text-gray-700 mt-1"></p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase">Buyer / Owner</p>
+                    <p id="modalBuyer" class="text-sm text-gray-700 mt-1"></p>
+                </div>
+            </div>
+            
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Print Details</p>
+                <p id="modalPrint" class="text-sm text-gray-800 font-medium"></p>
+            </div>
+        </div>
+        
+        <!-- Modal Footer -->
+        <div class="bg-gray-50 px-6 py-4 flex justify-end">
+            <button class="close-details-modal px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- REQUEST MODAL (For Supervisors only)       -->
+<!-- ========================================== -->
+{% if current_user.role == 'supervisor' %}
+<div id="requestModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <h3 class="text-lg font-bold mb-4">Request Stock</h3>
+        <form id="requestForm" method="POST" action="{{ url_for('requests.create_request') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="item_id" id="requestItemId">
+            <p class="text-sm text-gray-600 mb-4" id="requestItemName"></p>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Quantity (pieces)</label>
+                <input type="number" name="quantity" step="0.01" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Notes (optional)</label>
+                <textarea name="notes" rows="3"
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+            </div>
+            
+            <div class="flex gap-3">
+                <button type="button" class="close-request-modal flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Submit Request
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- ========================================== -->
+<!-- SCRIPTS (Simple, reliable Vanilla JS)      -->
+<!-- ========================================== -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        // 1. Handle Details Modal
+        document.querySelectorAll('.details-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Populate data
+                document.getElementById('modalTitle').textContent = this.dataset.title;
+                document.getElementById('modalPrint').textContent = this.dataset.print;
+                document.getElementById('modalBuyer').textContent = this.dataset.buyer;
+                document.getElementById('modalSpecs').textContent = this.dataset.specs;
+                
+                // Show modal (removes Tailwind 'hidden' class)
+                document.getElementById('detailsModal').classList.remove('hidden');
+            });
+        });
+
+        // Close Details Modal buttons
+        document.querySelectorAll('.close-details-modal').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.getElementById('detailsModal').classList.add('hidden');
+            });
+        });
+
+        // 2. Handle Request Modal (Supervisors)
+        const requestModal = document.getElementById('requestModal');
+        if (requestModal) {
+            window.openRequestModal = function(itemId, itemName) {
+                document.getElementById('requestItemId').value = itemId;
+                document.getElementById('requestItemName').textContent = itemName;
+                requestModal.classList.remove('hidden');
+            };
+
+            document.querySelectorAll('.close-request-modal').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    requestModal.classList.add('hidden');
+                });
+            });
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Requests - FactoryStock{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <i class="fas fa-clipboard-list text-blue-600"></i>
+            {% if current_user.role == 'supervisor' %}
+            My Requests
+            {% elif current_user.role == 'store_keeper' %}
+            Pending Requests
+            {% else %}
+            All Requests
+            {% endif %}
+        </h1>
+        <p class="text-gray-600 mt-1">
+            {% if current_user.role == 'supervisor' %}Track your stock requests
+            {% elif current_user.role == 'store_keeper' %}Fulfill supervisor requests
+            {% else %}View all stock requests (read-only){% endif %}
+        </p>
+    </div>
+    
+    <!-- Requests Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                        {% if current_user.role == 'store_keeper' %}
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for req in requests %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 text-sm text-gray-500">{{ req.id }}</td>
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ req.item.display_name }}</td>
+                        <td class="px-6 py-4 text-sm text-gray-700">{{ req.requester.username }}</td>
+                        <td class="px-6 py-4 text-right text-sm">{{ "%.0f"|format(req.quantity_pieces_requested) }} pcs</td>
+                        <td class="px-6 py-4">
+                            {% if req.status == 'pending' %}
+                            <span class="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">Pending</span>
+                            {% else %}
+                            <span class="px-3 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">Completed</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{{ req.notes or '-' }}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">
+                            {{ req.created_at|format_date('%d/%m/%Y %H:%M') }}
+                        </td>
+                        {% if current_user.role == 'store_keeper' and req.status == 'pending' %}
+                        <td class="px-6 py-4">
+                            <form method="POST" action="{{ url_for('requests.fulfill_request', request_id=req.id) }}"
+                                  onsubmit="return confirm('Fulfill this request?');" class="inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit"
+                                        class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                                    Fulfill
+                                </button>
+                            </form>
+                        </td>
+                        {% elif current_user.role == 'store_keeper' %}
+                        <td class="px-6 py-4 text-sm text-gray-400">Completed</td>
+                        {% else %}
+                        <td class="px-6 py-4 text-sm text-gray-400">-</td>
+                        {% endif %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="{% if current_user.role == 'store_keeper' %}8{% else %}7{% endif %}" 
+                            class="px-6 py-12 text-center text-gray-500">
+                            <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
+                            <p>No requests found</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
