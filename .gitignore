@@ -1,13 +1,37 @@
-# Ignore the database and instance folder
-*.db
-instance/
-
-# Ignore virtual environment
-venv/
-
-# Ignore environment variables (contains your SECRET_KEY!)
-.env
-
-# Ignore Python cache
-__pycache__/
+```
+# Compiled Python files
 *.pyc
+__pycache__/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# Coverage reports
+.coverage
+coverage/
+htmlcov/
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+.mypy_cache/
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+target/
+```

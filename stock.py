@@ -28,7 +28,13 @@ def stock_directory():
                 func.lower(Item.micron_label).like(f'%{search_term}%'),
                 func.lower(Zone.code).like(f'%{search_term}%'),
                 
-                # NEW: Cast float columns to String so we can search decimals like "50.5"
+                # Search width by casting float to String
+                db.cast(Item.width_inches, db.String).like(f'%{search_term}%'),
+                
+                # Search length for bags
+                db.cast(Item.length_inches, db.String).like(f'%{search_term}%'),
+                
+                # Cast float columns to String so we can search decimals like "50.5"
                 db.cast(Stock.quantity_pieces, db.String).like(f'%{search_term}%'),
                 db.cast(Stock.quantity_kg, db.String).like(f'%{search_term}%')
             )
@@ -64,19 +70,34 @@ def stock_in():
         return redirect(url_for('stock.stock_directory'))
     
     if request.method == 'POST':
-        # Get form data
-        material = request.form.get('material')
-        item_type = request.form.get('type')
-        width = float(request.form.get('width', 0) or 0)
-        length = float(request.form.get('length', 0) or 0)
-        micron_label = request.form.get('micron')
-        weight = float(request.form.get('weight'))
-        quantity = float(request.form.get('quantity'))
+        # Validate and sanitize form data
+        material = request.form.get('material', '')[:50]
+        item_type = request.form.get('type', '')[:20]
+        
+        try:
+            width = float(request.form.get('width', 0) or 0)
+            length = float(request.form.get('length', 0) or 0)
+            weight = float(request.form.get('weight', 0))
+            quantity = float(request.form.get('quantity', 0))
+        except (ValueError, TypeError):
+            flash('Invalid numeric values entered.', 'error')
+            return redirect(request.url)
+        
+        micron_label = request.form.get('micron', '')[:20]
         is_printed = request.form.get('printed') == 'on'
-        print_details = request.form.get('print_details') if is_printed else None
-        buyer_name = request.form.get('buyer') if is_printed else None
-        zone_code = request.form.get('zone')
+        print_details = request.form.get('print_details', '')[:200] if is_printed else None
+        buyer_name = request.form.get('buyer', '')[:100] if is_printed else None
+        zone_code = request.form.get('zone', '')[:10]
         date_received = datetime.now().date()
+        
+        # Validate required fields
+        if not material or not item_type or not micron_label or not zone_code:
+            flash('Missing required fields.', 'error')
+            return redirect(request.url)
+        
+        if quantity <= 0 or weight <= 0:
+            flash('Quantity and weight must be greater than zero.', 'error')
+            return redirect(request.url)
         
         # Find or create item
         item = Item.query.filter_by(
@@ -182,11 +203,17 @@ def stock_out(item_id):
         return redirect(url_for('stock.stock_directory'))
 
     if request.method == 'POST':
-        quantity_to_deduct = float(request.form.get('quantity_pieces', 0))
-        notes = request.form.get('notes', '')
+        # Validate and sanitize input
+        try:
+            quantity_to_deduct = float(request.form.get('quantity_pieces', 0))
+        except (ValueError, TypeError):
+            flash('Invalid quantity entered.', 'error')
+            return redirect(request.url)
+        
+        notes = request.form.get('notes', '')[:500]  # Limit notes length
 
         if quantity_to_deduct <= 0:
-            flash('Please enter a valid quantity.', 'error')
+            flash('Please enter a valid quantity greater than zero.', 'error')
             return redirect(request.url)
 
         # Get available stock for this item, oldest first (FIFO)

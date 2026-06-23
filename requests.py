@@ -29,9 +29,27 @@ def create_request():
         flash('Only supervisors can create requests', 'error')
         return redirect(url_for('stock.stock_directory'))
     
+    # Validate and sanitize input
     item_id = request.form.get('item_id')
-    quantity = float(request.form.get('quantity'))
-    notes = request.form.get('notes')
+    quantity_str = request.form.get('quantity', '0')
+    notes = request.form.get('notes', '')[:500]  # Limit notes length
+    
+    try:
+        quantity = float(quantity_str)
+        item_id = int(item_id)
+    except (ValueError, TypeError):
+        flash('Invalid quantity or item ID', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
+    if quantity <= 0:
+        flash('Quantity must be greater than zero', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
+    # Verify item exists
+    item = Item.query.get(item_id)
+    if not item:
+        flash('Item not found', 'error')
+        return redirect(url_for('stock.stock_directory'))
     
     request_obj = Request(
         requested_by=current_user.id,
@@ -56,19 +74,41 @@ def fulfill_request(request_id):
     
     req = Request.query.get_or_404(request_id)
     
-    # Get stock for this item
-    stock = Stock.query.filter_by(item_id=req.item_id).first()
-    
-    if not stock or stock.quantity_pieces < req.quantity_pieces_requested:
-        flash('Insufficient stock available', 'error')
+    # Prevent double-fulfillment
+    if req.status == 'completed':
+        flash('Request already fulfilled', 'error')
         return redirect(url_for('requests.requests_list'))
     
-    # Deduct stock
-    stock.quantity_pieces -= req.quantity_pieces_requested
-    # Calculate weight proportionally
-    weight_per_piece = stock.quantity_kg / (stock.quantity_pieces + req.quantity_pieces_requested)
-    weight_to_deduct = weight_per_piece * req.quantity_pieces_requested
-    stock.quantity_kg -= weight_to_deduct
+    # Get stock for this item (oldest first - FIFO)
+    available_stocks = Stock.query.filter_by(item_id=req.item_id) \
+        .filter(Stock.quantity_pieces > 0) \
+        .order_by(Stock.date_received.asc()).all()
+    
+    total_available = sum(s.quantity_pieces for s in available_stocks)
+    
+    if total_available < req.quantity_pieces_requested:
+        flash(f'Insufficient stock available. Available: {total_available:.2f}, Requested: {req.quantity_pieces_requested:.2f}', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    # Deduct stock using FIFO
+    remaining = req.quantity_pieces_requested
+    total_weight_deducted = 0.0
+    
+    for stock in available_stocks:
+        if remaining <= 0:
+            break
+        
+        deduct_amount = min(stock.quantity_pieces, remaining)
+        stock.quantity_pieces -= deduct_amount
+        remaining -= deduct_amount
+        
+        # Calculate proportional KG to deduct
+        original_pieces = stock.quantity_pieces + deduct_amount
+        if original_pieces > 0:
+            kg_ratio = stock.quantity_kg / original_pieces
+            deduct_kg = deduct_amount * kg_ratio
+            stock.quantity_kg -= deduct_kg
+            total_weight_deducted += deduct_kg
     
     # Create transaction
     item = Item.query.get(req.item_id)
@@ -76,6 +116,9 @@ def fulfill_request(request_id):
         flash('Item no longer exists', 'error')
         return redirect(url_for('requests.requests_list'))
 
+    # Use the first stock's zone for the transaction record
+    first_stock_zone = available_stocks[0].zone_code if available_stocks else None
+    
     transaction = Transaction(
         transaction_type='OUT',
         item_type=item.item_type,
@@ -85,9 +128,9 @@ def fulfill_request(request_id):
         micron_label=item.micron_label,
         is_printed=item.is_printed,
         buyer_name=item.buyer_name,
-        zone_code=stock.zone_code,
+        zone_code=first_stock_zone,
         quantity_pieces=req.quantity_pieces_requested,
-        quantity_kg=weight_to_deduct,
+        quantity_kg=total_weight_deducted,
         request_id=req.id,
         user_id=current_user.id,
         notes=f"Stock OUT - Request #{req.id} by {req.requester.username}"
