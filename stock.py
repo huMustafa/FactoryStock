@@ -26,7 +26,11 @@ def stock_directory():
                 func.lower(Item.print_details).like(f'%{search_term}%'),
                 func.lower(Item.material).like(f'%{search_term}%'),
                 func.lower(Item.micron_label).like(f'%{search_term}%'),
-                func.lower(Zone.code).like(f'%{search_term}%')
+                func.lower(Zone.code).like(f'%{search_term}%'),
+                
+                # NEW: Cast float columns to String so we can search decimals like "50.5"
+                db.cast(Stock.quantity_pieces, db.String).like(f'%{search_term}%'),
+                db.cast(Stock.quantity_kg, db.String).like(f'%{search_term}%')
             )
         )
     # ----------------------------
@@ -163,3 +167,78 @@ def audit_log():
                          transactions=transactions,
                          types=types,
                          selected_type=trans_type)
+
+@stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
+@login_required
+def stock_out(item_id):
+    # Only Store Keepers and Owners can do this
+    if current_user.role not in ['store_keeper', 'owner']:
+        flash('Permission denied.', 'error')
+        return redirect(url_for('stock.stock_directory'))
+
+    item = db.session.get(Item, item_id)
+    if not item:
+        flash('Item not found.', 'error')
+        return redirect(url_for('stock.stock_directory'))
+
+    if request.method == 'POST':
+        quantity_to_deduct = float(request.form.get('quantity_pieces', 0))
+        notes = request.form.get('notes', '')
+
+        if quantity_to_deduct <= 0:
+            flash('Please enter a valid quantity.', 'error')
+            return redirect(request.url)
+
+        # Get available stock for this item, oldest first (FIFO)
+        available_stocks = Stock.query.filter_by(item_id=item.id)\
+            .filter(Stock.quantity_pieces > 0)\
+            .order_by(Stock.date_received.asc()).all()
+
+        total_available = sum(s.quantity_pieces for s in available_stocks)
+        if total_available < quantity_to_deduct:
+            flash(f'Not enough stock! Available: {total_available:.2f}, Requested: {quantity_to_deduct:.2f}', 'error')
+            return redirect(request.url)
+
+        # Deduct stock
+        remaining = quantity_to_deduct
+        
+        for stock in available_stocks:
+            if remaining <= 0:
+                break
+            
+            deduct_amount = min(stock.quantity_pieces, remaining)
+            stock.quantity_pieces -= deduct_amount
+            remaining -= deduct_amount
+            
+            # Calculate proportional KG to deduct so your weights stay accurate
+            original_pieces = stock.quantity_pieces + deduct_amount
+            if original_pieces > 0:
+                kg_ratio = stock.quantity_kg / original_pieces
+                deduct_kg = deduct_amount * kg_ratio
+                stock.quantity_kg -= deduct_kg
+            else:
+                deduct_kg = 0
+
+            # Log the transaction matching YOUR detailed Transaction model
+            transaction = Transaction(
+                transaction_type='OUT',
+                item_type=item.item_type,
+                material=item.material,
+                width_inches=item.width_inches,
+                length_inches=item.length_inches,
+                micron_label=item.micron_label,
+                is_printed=item.is_printed,
+                buyer_name=item.buyer_name,
+                zone_code=stock.zone_code,
+                quantity_pieces=deduct_amount,
+                quantity_kg=deduct_kg,
+                user_id=current_user.id,
+                notes=f"Direct Stock Out. {notes}"
+            )
+            db.session.add(transaction)
+
+        db.session.commit()
+        flash(f'Successfully stocked out {quantity_to_deduct:.2f} pieces of {item.display_name}.', 'success')
+        return redirect(url_for('stock.stock_directory'))
+
+    return render_template('stock_out.html', item=item)                         
