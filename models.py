@@ -49,9 +49,9 @@ class Item(db.Model):
     def display_name(self):
         name = f"{self.material} {self.item_type.capitalize()}"
         if self.item_type in ['roll', 'sheet']:
-            name += f" {int(self.width_inches)}\""
+            name += f" {self.width_inches}\""
         elif self.item_type == 'bag':
-            name += f" {int(self.length_inches)}\"x{int(self.width_inches)}\""
+            name += f" {self.length_inches}\"x{self.width_inches}\""
         
         name += f" {self.micron_label}µ"
         if self.is_printed:
@@ -65,11 +65,11 @@ class Item(db.Model):
     @property
     def specs(self):
         if self.item_type == 'bag':
-            return f"{self.material} Bag {int(self.length_inches)}\" x {self.micron_label}mic"
+            return f"{self.material} Bag {self.length_inches}\" x {self.micron_label}mic"
         elif self.item_type == 'roll':
-            return f"{self.material} Roll {int(self.width_inches)}\" x {self.micron_label}mic"
+            return f"{self.material} Roll {self.width_inches}\" x {self.micron_label}mic"
         else:
-            return f"{self.material} Sheet {int(self.width_inches)}\" x {self.micron_label}mic"
+            return f"{self.material} Sheet {self.width_inches}\" x {self.micron_label}mic"
 
 class Stock(db.Model):
     __tablename__ = 'stock'
