@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+import re
 
 db = SQLAlchemy()
 
@@ -17,11 +18,20 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def set_password(self, password):
-        # Require at least 8 characters
-        if password and len(password) >= 8:
-            self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
-            return True
-        return False
+        # Strong password requirements: min 8 chars, upper, lower, digit, special
+        if not password or len(password) < 8:
+            return False
+        if not re.search(r'[A-Z]', password):
+            return False
+        if not re.search(r'[a-z]', password):
+            return False
+        if not re.search(r'\d', password):
+            return False
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            return False
+        
+        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+        return True
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)

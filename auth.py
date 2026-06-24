@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app
 from flask_login import login_user, logout_user, login_required, current_user
 from models import db, User
 from datetime import datetime
@@ -20,9 +20,17 @@ def login():
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
         remember = request.form.get('remember') == 'on'
+        
+        # Input validation
+        if not username or not password:
+            flash('Username and password are required', 'error')
+            return render_template('login.html')
+        
+        # Rate limiting is handled in before_request
+        client_ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
         
         user = User.query.filter_by(username=username).first()
         
@@ -48,6 +56,9 @@ def login():
             flash('Logged in successfully', 'success')
             return redirect(url_for('dashboard'))
         else:
+            # Record failed attempt for rate limiting
+            from main import record_login_attempt
+            record_login_attempt(client_ip)
             flash('Invalid username or password', 'error')
     
     return render_template('login.html')

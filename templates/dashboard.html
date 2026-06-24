@@ -9,6 +9,19 @@
         <p class="text-gray-600 mt-1">Real-time inventory of finished goods</p>
     </div>
     
+    <!-- Total Weight Summary -->
+    <div class="bg-blue-600 rounded-lg shadow p-4 text-white">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-blue-100 font-medium">Total Stock Weight</p>
+                <p class="text-3xl font-bold">{{ "%.2f"|format(total_weight_kg) }} kg</p>
+            </div>
+            <div class="bg-blue-700 p-4 rounded-lg">
+                <i class="fas fa-weight-hanging text-4xl"></i>
+            </div>
+        </div>
+    </div>
+    
     <!-- Filters -->
     <div class="bg-white rounded-lg shadow p-4">
         <form method="GET" class="flex flex-wrap gap-4">
@@ -16,7 +29,7 @@
                 <div class="relative">
                     <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                     <input type="text" name="search" value="{{ search_term }}"
-                           placeholder="Search by buyer, material, print details..."
+                           placeholder="Search by buyer, material, print details, width, length..."
                            class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 </div>
             </div>
@@ -179,22 +192,22 @@
 <div id="requestModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
         <h3 class="text-lg font-bold mb-4">Request Stock</h3>
-        <form id="requestForm" method="POST" action="{{ url_for('requests.create_request') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="item_id" id="requestItemId">
-            <p class="text-sm text-gray-600 mb-4" id="requestItemName"></p>
-            
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Quantity (pieces)</label>
-                <input type="number" name="quantity" step="0.01" required
-                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Notes (optional)</label>
-                <textarea name="notes" rows="3"
-                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
-            </div>
+                <form id="requestForm" method="POST" action="{{ url_for('requests.create_request') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="item_id" id="requestItemId">
+                    <p class="text-sm text-gray-600 mb-4" id="requestItemName"></p>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Quantity (pieces)</label>
+                        <input type="number" name="quantity" step="0.01" min="0.01" required
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Notes (optional)</label>
+                        <textarea name="notes" rows="3" maxlength="500"
+                                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
             
             <div class="flex gap-3">
                 <button type="button" class="close-request-modal flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">

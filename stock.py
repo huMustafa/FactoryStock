@@ -1,10 +1,40 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
+from flask import current_app
 from models import db, Item, Stock, Transaction, Zone, User
 from datetime import datetime
 from sqlalchemy import or_, func
+import re
 
 stock_bp = Blueprint('stock', __name__)
+
+def sanitize_input(text, max_length=200):
+    """Sanitize user input to prevent XSS"""
+    if not text:
+        return ''
+    # Remove potentially dangerous characters
+    text = re.sub(r'[<>\"\'&]', '', text)
+    return text[:max_length]
+
+def validate_float(value, min_val=0, max_val=1000000):
+    """Validate and convert to float"""
+    try:
+        val = float(value)
+        if val < min_val or val > max_val:
+            return None
+        return val
+    except (ValueError, TypeError):
+        return None
+
+def validate_int(value, min_val=0, max_val=1000000):
+    """Validate and convert to int"""
+    try:
+        val = int(value)
+        if val < min_val or val > max_val:
+            return None
+        return val
+    except (ValueError, TypeError):
+        return None
 
 @stock_bp.route('/')
 @login_required
@@ -17,6 +47,9 @@ def stock_directory():
     # Build query
     query = Stock.query.join(Item).join(Zone)
     
+    # Exclude items with 0 quantity
+    query = query.filter(Stock.quantity_pieces > 0)
+    
     # --- UPDATED SEARCH LOGIC ---
     if search:
         search_term = search.lower()
@@ -27,7 +60,9 @@ def stock_directory():
                 func.lower(Item.material).like(f'%{search_term}%'),
                 func.lower(Item.micron_label).like(f'%{search_term}%'),
                 func.lower(Zone.code).like(f'%{search_term}%'),
-                
+                # Search by width and length (cast to string for decimal search)
+                db.cast(Item.width_inches, db.String).like(f'%{search_term}%'),
+                db.cast(Item.length_inches, db.String).like(f'%{search_term}%'),
                 # NEW: Cast float columns to String so we can search decimals like "50.5"
                 db.cast(Stock.quantity_pieces, db.String).like(f'%{search_term}%'),
                 db.cast(Stock.quantity_kg, db.String).like(f'%{search_term}%')
@@ -48,13 +83,17 @@ def stock_directory():
     materials = db.session.query(Item.material).distinct().all()
     types = db.session.query(Item.item_type).distinct().all()
     
+    # Calculate total stock weight (across all stock, regardless of filters)
+    total_weight_kg = db.session.query(func.sum(Stock.quantity_kg)).filter(Stock.quantity_pieces > 0).scalar() or 0
+    
     return render_template('dashboard.html', 
                          stocks=stocks, 
                          materials=[m[0] for m in materials],
                          types=[t[0] for t in types],
                          selected_material=material,
                          selected_type=item_type,
-                         search_term=search)
+                         search_term=search,
+                         total_weight_kg=total_weight_kg)
 
 @stock_bp.route('/in', methods=['GET', 'POST'])
 @login_required
@@ -64,19 +103,52 @@ def stock_in():
         return redirect(url_for('stock.stock_directory'))
     
     if request.method == 'POST':
-        # Get form data
-        material = request.form.get('material')
-        item_type = request.form.get('type')
-        width = float(request.form.get('width', 0) or 0)
-        length = float(request.form.get('length', 0) or 0)
-        micron_label = request.form.get('micron')
-        weight = float(request.form.get('weight'))
-        quantity = float(request.form.get('quantity'))
+        # Get and validate form data
+        material = sanitize_input(request.form.get('material', ''), 20)
+        item_type = sanitize_input(request.form.get('type', ''), 20)
+        width = validate_float(request.form.get('width', 0), 0, 10000)
+        length = validate_float(request.form.get('length', 0), 0, 10000)
+        micron_label = sanitize_input(request.form.get('micron', ''), 20)
+        weight = validate_float(request.form.get('weight'), 0.01, 100000)
+        quantity = validate_float(request.form.get('quantity'), 0.01, 100000)
         is_printed = request.form.get('printed') == 'on'
-        print_details = request.form.get('print_details') if is_printed else None
-        buyer_name = request.form.get('buyer') if is_printed else None
-        zone_code = request.form.get('zone')
+        print_details = sanitize_input(request.form.get('print_details', ''), 200) if is_printed else None
+        buyer_name = sanitize_input(request.form.get('buyer', ''), 100) if is_printed else None
+        zone_code = sanitize_input(request.form.get('zone', ''), 10)
         date_received = datetime.now().date()
+        
+        # Validate required fields
+        if not all([material, item_type, micron_label, weight is not None, quantity is not None, zone_code]):
+            flash('All required fields must be filled', 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
+        if item_type not in ['roll', 'sheet', 'bag']:
+            flash('Invalid item type', 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
+        if material not in ['PE', 'HDPE', 'PP']:
+            flash('Invalid material', 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
+        # Validate zone exists
+        if not Zone.query.get(zone_code):
+            flash('Invalid zone', 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
+        # Validate dimensions based on item type
+        if item_type in ['roll', 'sheet'] and width <= 0:
+            flash('Width is required for rolls and sheets', 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
+        if item_type == 'bag' and length <= 0:
+            flash('Length is required for bags', 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
         
         # Find or create item
         item = Item.query.filter_by(
@@ -142,6 +214,11 @@ def stock_in():
         db.session.add(transaction)
         
         db.session.commit()
+        
+        # Audit log
+        current_app.log_audit('stock', item.id, 'INSERT', 
+                             None, {'quantity': quantity, 'weight': weight, 'zone': zone_code})
+        
         flash('Stock added successfully', 'success')
         return redirect(url_for('stock.stock_directory'))
     
@@ -168,6 +245,69 @@ def audit_log():
                          types=types,
                          selected_type=trans_type)
 
+@stock_bp.route('/supervisor-usage')
+@login_required
+def supervisor_usage():
+    if current_user.role != 'owner':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
+    from datetime import timedelta
+    
+    # Get week parameter (default to current week)
+    week_offset = request.args.get('week', 0, type=int)
+    today = datetime.now().date()
+    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    end_of_week = start_of_week + timedelta(days=6)
+    
+    # Query OUT transactions by supervisors for the selected week
+    usage_data = db.session.query(
+        User.username,
+        User.id,
+        func.sum(Transaction.quantity_kg).label('total_kg'),
+        func.count(Transaction.id).label('transaction_count')
+    ).join(Transaction, Transaction.user_id == User.id)\
+    .filter(
+        User.role == 'supervisor',
+        Transaction.transaction_type == 'OUT',
+        func.date(Transaction.executed_at) >= start_of_week,
+        func.date(Transaction.executed_at) <= end_of_week
+    ).group_by(User.id, User.username).all()
+    
+    # Also get all supervisors for those with 0 usage
+    all_supervisors = User.query.filter_by(role='supervisor', is_active=True).all()
+    supervisor_dict = {s.id: s.username for s in all_supervisors}
+    
+    # Build complete list including supervisors with 0 usage
+    result = []
+    for sup_id, username in supervisor_dict.items():
+        match = next((u for u in usage_data if u.id == sup_id), None)
+        if match:
+            result.append({
+                'username': username,
+                'total_kg': float(match.total_kg),
+                'transaction_count': match.transaction_count
+            })
+        else:
+            result.append({
+                'username': username,
+                'total_kg': 0.0,
+                'transaction_count': 0
+            })
+    
+    # Sort by total kg descending
+    result.sort(key=lambda x: x['total_kg'], reverse=True)
+    
+    # Calculate grand total
+    grand_total_kg = sum(r['total_kg'] for r in result)
+    
+    return render_template('supervisor_usage.html',
+                         usage_data=result,
+                         grand_total_kg=grand_total_kg,
+                         week_offset=week_offset,
+                         start_of_week=start_of_week,
+                         end_of_week=end_of_week)
+
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
 @login_required
 def stock_out(item_id):
@@ -182,11 +322,15 @@ def stock_out(item_id):
         return redirect(url_for('stock.stock_directory'))
 
     if request.method == 'POST':
-        quantity_to_deduct = float(request.form.get('quantity_pieces', 0))
-        notes = request.form.get('notes', '')
+        quantity_to_deduct = validate_float(request.form.get('quantity_pieces', 0), 0.01, 100000)
+        notes = sanitize_input(request.form.get('notes', ''), 500)
 
-        if quantity_to_deduct <= 0:
+        if quantity_to_deduct is None:
             flash('Please enter a valid quantity.', 'error')
+            return redirect(request.url)
+        
+        if not notes:
+            flash('Receiver name is required.', 'error')
             return redirect(request.url)
 
         # Get available stock for this item, oldest first (FIFO)
@@ -233,11 +377,16 @@ def stock_out(item_id):
                 quantity_pieces=deduct_amount,
                 quantity_kg=deduct_kg,
                 user_id=current_user.id,
-                notes=f"Direct Stock Out. {notes}"
+                notes=f"Direct Stock Out - Given to: {notes}"
             )
             db.session.add(transaction)
 
         db.session.commit()
+        
+        # Audit log
+        current_app.log_audit('stock', item.id, 'DELETE', 
+                             {'quantity': quantity_to_deduct}, {'deducted': quantity_to_deduct})
+        
         flash(f'Successfully stocked out {quantity_to_deduct:.2f} pieces of {item.display_name}.', 'success')
         return redirect(url_for('stock.stock_directory'))
 
