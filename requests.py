@@ -151,7 +151,11 @@ def fulfill_request(request_id):
             quantity_kg=deduct_kg,
             request_id=req.id,
             user_id=current_user.id,
-            notes=f"Stock OUT - Request #{req.id} by {req.requester.username} - Given to: {receiver_name}"
+            notes=f"Stock OUT - Request #{req.id} by {req.requester.username} - Given to: {receiver_name}",
+            gusset_inches=item.gusset_inches,
+            flap_inches=item.flap_inches,
+            brand_name=item.brand_name,
+            handle_type=item.handle_type
         )
         db.session.add(transaction)
     

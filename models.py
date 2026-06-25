@@ -55,6 +55,12 @@ class Item(db.Model):
     print_details = db.Column(db.String(200), nullable=True)
     buyer_name = db.Column(db.String(100), nullable=True)
     
+    # Bag-specific fields
+    gusset_inches = db.Column(db.Float, nullable=True)
+    flap_inches = db.Column(db.Float, nullable=True)
+    brand_name = db.Column(db.String(100), nullable=True)
+    handle_type = db.Column(db.String(20), nullable=True)  # 'D-cut', 'Loop', 'None'
+    
     @property
     def display_name(self):
         name = f"{self.material} {self.item_type.capitalize()}"
@@ -75,11 +81,20 @@ class Item(db.Model):
     @property
     def specs(self):
         if self.item_type == 'bag':
-            return f"{self.material} Bag {self.length_inches}\" x {self.micron_label}mic"
+            parts = [f"{self.material} Bag", f"{self.length_inches}\"x{self.width_inches}\"", f"{self.micron_label}µ"]
+            if self.gusset_inches:
+                parts.append(f"Gusset: {self.gusset_inches}\"")
+            if self.flap_inches:
+                parts.append(f"Flap: {self.flap_inches}\"")
+            if self.handle_type:
+                parts.append(f"Handle: {self.handle_type}")
+            if self.brand_name:
+                parts.append(f"Brand: {self.brand_name}")
+            return " | ".join(parts)
         elif self.item_type == 'roll':
-            return f"{self.material} Roll {self.width_inches}\" x {self.micron_label}mic"
+            return f"{self.material} Roll {self.width_inches}\" x {self.micron_label}µ"
         else:
-            return f"{self.material} Sheet {self.width_inches}\" x {self.micron_label}mic"
+            return f"{self.material} Sheet {self.width_inches}\" x {self.micron_label}µ"
 
 class Stock(db.Model):
     __tablename__ = 'stock'
@@ -111,6 +126,12 @@ class Transaction(db.Model):
     zone_code = db.Column(db.String(10), nullable=True)
     quantity_pieces = db.Column(db.Float, nullable=False)
     quantity_kg = db.Column(db.Float, nullable=False)
+    
+    # Bag-specific fields
+    gusset_inches = db.Column(db.Float, nullable=True)
+    flap_inches = db.Column(db.Float, nullable=True)
+    brand_name = db.Column(db.String(100), nullable=True)
+    handle_type = db.Column(db.String(20), nullable=True)
     request_id = db.Column(db.Integer, db.ForeignKey('requests.id'), nullable=True)
     original_transaction_id = db.Column(db.Integer, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)

@@ -62,10 +62,7 @@ def stock_directory():
                 func.lower(Zone.code).like(f'%{search_term}%'),
                 # Search by width and length (cast to string for decimal search)
                 db.cast(Item.width_inches, db.String).like(f'%{search_term}%'),
-                db.cast(Item.length_inches, db.String).like(f'%{search_term}%'),
-                # NEW: Cast float columns to String so we can search decimals like "50.5"
-                db.cast(Stock.quantity_pieces, db.String).like(f'%{search_term}%'),
-                db.cast(Stock.quantity_kg, db.String).like(f'%{search_term}%')
+                db.cast(Item.length_inches, db.String).like(f'%{search_term}%')
             )
         )
     # ----------------------------
@@ -117,6 +114,25 @@ def stock_in():
         zone_code = sanitize_input(request.form.get('zone', ''), 10)
         date_received = datetime.now().date()
         
+        # Bag-specific fields
+        gusset = validate_float(request.form.get('gusset'), 0, 10000)
+        flap = validate_float(request.form.get('flap'), 0, 10000)
+        brand_name = sanitize_input(request.form.get('brand_name', ''), 100)
+        handle_type = sanitize_input(request.form.get('handle_type', ''), 20)
+        
+        # Unit conversion for bags
+        dimension_unit = request.form.get('dimension_unit', 'inch')
+        bag_extra_unit = request.form.get('bag_extra_unit', 'inch')
+        
+        # Convert cm to inches (1 inch = 2.54 cm)
+        if item_type == 'bag':
+            if dimension_unit == 'cm':
+                width = width / 2.54 if width else 0
+                length = length / 2.54 if length else 0
+            if bag_extra_unit == 'cm':
+                gusset = gusset / 2.54 if gusset else 0
+                flap = flap / 2.54 if flap else 0
+        
         # Validate required fields
         if not all([material, item_type, micron_label, weight is not None, quantity is not None, zone_code]):
             flash('All required fields must be filled', 'error')
@@ -128,7 +144,7 @@ def stock_in():
             zones = Zone.query.order_by(Zone.code).all()
             return render_template('stock_in.html', zones=zones)
         
-        if material not in ['PE', 'HDPE', 'PP']:
+        if material not in ['PE', 'HDPE', 'PP', 'PE - Recycle', 'HDPE - Recycle']:
             flash('Invalid material', 'error')
             zones = Zone.query.order_by(Zone.code).all()
             return render_template('stock_in.html', zones=zones)
@@ -145,17 +161,22 @@ def stock_in():
             zones = Zone.query.order_by(Zone.code).all()
             return render_template('stock_in.html', zones=zones)
         
-        if item_type == 'bag' and length <= 0:
-            flash('Length is required for bags', 'error')
-            zones = Zone.query.order_by(Zone.code).all()
-            return render_template('stock_in.html', zones=zones)
+        if item_type == 'bag':
+            if length <= 0:
+                flash('Length is required for bags', 'error')
+                zones = Zone.query.order_by(Zone.code).all()
+                return render_template('stock_in.html', zones=zones)
+            if width <= 0:
+                flash('Width is required for bags', 'error')
+                zones = Zone.query.order_by(Zone.code).all()
+                return render_template('stock_in.html', zones=zones)
         
         # Find or create item
         item = Item.query.filter_by(
             item_type=item_type,
             material=material,
-            width_inches=width if item_type != 'bag' else length,
-            length_inches=length if item_type == 'bag' else None,
+            width_inches=width,
+            length_inches=length,
             micron_label=micron_label,
             is_printed=is_printed,
             buyer_name=buyer_name
@@ -165,12 +186,16 @@ def stock_in():
             item = Item(
                 item_type=item_type,
                 material=material,
-                width_inches=width if item_type != 'bag' else length,
-                length_inches=length if item_type == 'bag' else None,
+                width_inches=width,
+                length_inches=length,
                 micron_label=micron_label,
                 is_printed=is_printed,
                 print_details=print_details,
-                buyer_name=buyer_name
+                buyer_name=buyer_name,
+                gusset_inches=gusset if item_type == 'bag' else None,
+                flap_inches=flap if item_type == 'bag' else None,
+                brand_name=brand_name if item_type == 'bag' else None,
+                handle_type=handle_type if item_type == 'bag' else None
             )
             db.session.add(item)
             db.session.flush()  # Get item ID
@@ -200,8 +225,8 @@ def stock_in():
             transaction_type='IN',
             item_type=item_type,
             material=material,
-            width_inches=width if item_type != 'bag' else length,
-            length_inches=length if item_type == 'bag' else None,
+            width_inches=width,
+            length_inches=length,
             micron_label=micron_label,
             is_printed=is_printed,
             buyer_name=buyer_name,
@@ -209,7 +234,11 @@ def stock_in():
             quantity_pieces=quantity,
             quantity_kg=weight,
             user_id=current_user.id,
-            notes=f"Stock IN - {item.display_name}"
+            notes=f"Stock IN - {item.display_name}",
+            gusset_inches=gusset if item_type == 'bag' else None,
+            flap_inches=flap if item_type == 'bag' else None,
+            brand_name=brand_name if item_type == 'bag' else None,
+            handle_type=handle_type if item_type == 'bag' else None
         )
         db.session.add(transaction)
         
@@ -377,7 +406,11 @@ def stock_out(item_id):
                 quantity_pieces=deduct_amount,
                 quantity_kg=deduct_kg,
                 user_id=current_user.id,
-                notes=f"Direct Stock Out - Given to: {notes}"
+                notes=f"Direct Stock Out - Given to: {notes}",
+                gusset_inches=item.gusset_inches,
+                flap_inches=item.flap_inches,
+                brand_name=item.brand_name,
+                handle_type=item.handle_type
             )
             db.session.add(transaction)
 

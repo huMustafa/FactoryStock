@@ -35,7 +35,6 @@
                         <option value="PE">PE</option>
                         <option value="HDPE">HDPE</option>
                         <option value="PP">PP</option>
-                        <option value="PP - Recycle">PP - Recycle</option>
                         <option value="PE - Recycle">PE - Recycle</option>
                         <option value="HDPE - Recycle">HDPE - Recycle</option>
                     </select>
@@ -59,6 +58,61 @@
                     <input type="text" name="micron" placeholder="60/120" required
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                     <p class="text-xs text-gray-500 mt-1">Enter single or double (e.g., 60 or 60/120)</p>
+                </div>
+            </div>
+            
+            <!-- Unit selector for bags (shown when Bag is selected) -->
+            <div id="unitField" class="hidden" style="display:none;">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Dimension Unit (for Bag)</label>
+                <select name="dimension_unit" id="dimensionUnit" 
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="inch">Inches</option>
+                    <option value="cm">Centimeters</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">All bag dimensions (length, width, gusset, flap) will use this unit</p>
+            </div>
+            
+            <!-- Bag-specific fields (shown when Bag is selected) -->
+            <div id="bagFields" class="space-y-6 hidden" style="display:none;">
+                <h4 class="text-lg font-semibold text-gray-800 border-b pb-2">Bag Specifications</h4>
+                
+                <div class="grid grid-cols-3 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Gusset</label>
+                        <input type="number" name="gusset" step="0.01" 
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Flap</label>
+                        <input type="number" name="flap" step="0.01" 
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Unit (Gusset/Flap)</label>
+                        <select name="bag_extra_unit" id="bagExtraUnit" 
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="inch">Inches</option>
+                            <option value="cm">Centimeters</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Brand Name</label>
+                        <input type="text" name="brand_name" placeholder="e.g., Custom Brand"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Handle Type</label>
+                        <select name="handle_type" 
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select handle...</option>
+                            <option value="D-cut">D-cut Handle</option>
+                            <option value="Loop">Loop Handle</option>
+                            <option value="None">No Handle</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             
@@ -133,25 +187,63 @@ function toggleDimensions() {
     const type = document.getElementById('itemType').value;
     const widthField = document.getElementById('widthField');
     const lengthField = document.getElementById('lengthField');
+    const bagFields = document.getElementById('bagFields');
+    const unitField = document.getElementById('unitField');
     const widthInput = widthField.querySelector('input');
     const lengthInput = lengthField.querySelector('input');
     
     if (type === 'bag') {
         widthField.style.display = 'block';
         lengthField.style.display = 'block';
+        bagFields.style.display = 'block';
+        unitField.style.display = 'block';
         widthInput.setAttribute('placeholder', 'Width');
         lengthInput.setAttribute('placeholder', 'Length');
-        widthInput.previousElementSibling.textContent = 'Width (inches) *';
+        updateDimensionLabels();
     } else if (type === 'roll' || type === 'sheet') {
         widthField.style.display = 'block';
         lengthField.style.display = 'none';
+        bagFields.style.display = 'none';
+        unitField.style.display = 'none';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
     } else {
         widthField.style.display = 'none';
         lengthField.style.display = 'none';
+        bagFields.style.display = 'none';
+        unitField.style.display = 'none';
     }
 }
+
+function updateDimensionLabels() {
+    const unit = document.getElementById('dimensionUnit').value;
+    const unitLabel = unit === 'inch' ? 'inches' : 'cm';
+    const extraUnit = document.getElementById('bagExtraUnit').value;
+    const extraUnitLabel = extraUnit === 'inch' ? 'inches' : 'cm';
+    
+    const widthLabel = document.getElementById('widthField').querySelector('label');
+    const lengthLabel = document.getElementById('lengthField').querySelector('label');
+    const gussetLabel = document.querySelector('label[for="gusset"]') || document.querySelector('input[name="gusset"]').previousElementSibling;
+    const flapLabel = document.querySelector('label[for="flap"]') || document.querySelector('input[name="flap"]').previousElementSibling;
+    
+    if (widthLabel) widthLabel.textContent = `Width (${unitLabel}) *`;
+    if (lengthLabel) lengthLabel.textContent = `Length (${unitLabel}) *`;
+    if (gussetLabel) gussetLabel.textContent = `Gusset (${extraUnitLabel})`;
+    if (flapLabel) flapLabel.textContent = `Flap (${extraUnitLabel})`;
+}
+
+// Add event listeners for unit changes
+document.addEventListener('DOMContentLoaded', function() {
+    const dimensionUnit = document.getElementById('dimensionUnit');
+    const bagExtraUnit = document.getElementById('bagExtraUnit');
+    
+    if (dimensionUnit) {
+        dimensionUnit.addEventListener('change', updateDimensionLabels);
+    }
+    if (bagExtraUnit) {
+        bagExtraUnit.addEventListener('change', updateDimensionLabels);
+    }
+});
 
 function togglePrintedFields() {
     const checkbox = document.getElementById('printedToggle');
