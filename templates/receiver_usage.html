@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Receiver Stock Usage - FactoryStock{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <i class="fas fa-user-tag text-purple-600"></i>
+            Receiver Stock Usage
+        </h1>
+        <p class="text-gray-600 mt-1">Weekly report of stock given out by receiver name</p>
+    </div>
+    
+    <!-- Week Navigation -->
+    <div class="bg-white rounded-lg shadow p-4 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <a href="{{ url_for('stock.receiver_usage', week=week_offset - 1) }}"
+               class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                <i class="fas fa-chevron-left"></i> Previous Week
+            </a>
+            <span class="px-6 py-2 bg-purple-50 text-purple-700 rounded-lg font-medium">
+                {{ start_of_week|format_date }} - {{ end_of_week|format_date }}
+            </span>
+            <a href="{{ url_for('stock.receiver_usage', week=week_offset + 1) }}"
+               class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                Next Week <i class="fas fa-chevron-right"></i>
+            </a>
+        </div>
+        <a href="{{ url_for('stock.receiver_usage') }}" 
+           class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+            This Week
+        </a>
+    </div>
+    
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-lg shadow p-6">
+            <p class="text-sm text-gray-500">Total Receivers</p>
+            <p class="text-3xl font-bold text-gray-900">{{ usage_data|length }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6">
+            <p class="text-sm text-gray-500">Total Transactions</p>
+            <p class="text-3xl font-bold text-purple-600">{{ usage_data|sum(attribute='transaction_count') }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6">
+            <p class="text-sm text-gray-500">Total Weight (kg)</p>
+            <p class="text-3xl font-bold text-green-600">{{ "%.2f"|format(grand_total_kg) }}</p>
+        </div>
+    </div>
+    
+    <!-- Usage Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receiver Name</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Weight (kg)</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Total</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for usage in usage_data %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 text-sm text-gray-500">{{ loop.index }}</td>
+                        <td class="px-6 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ usage.receiver }}</div>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <span class="text-sm font-medium text-gray-900">
+                                {{ usage.transaction_count }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <span class="text-lg font-semibold text-purple-600">
+                                {{ "%.2f"|format(usage.total_kg) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            {% if grand_total_kg > 0 %}
+                            <span class="text-sm font-medium text-green-600">
+                                {{ "%.1f"|format((usage.total_kg / grand_total_kg) * 100) }}%
+                            </span>
+                            {% else %}
+                            <span class="text-sm text-gray-400">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                            <i class="fas fa-user-tag text-4xl mb-3 text-gray-300"></i>
+                            <p>No stock outs recorded this week</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="bg-gray-50 border-t border-gray-200">
+                    <tr>
+                        <td colspan="3" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Grand Total</td>
+                        <td class="px-6 py-3 text-right text-lg font-bold text-gray-900">{{ "%.2f"|format(grand_total_kg) }}</td>
+                        <td class="px-6 py-3 text-right text-lg font-bold text-green-600">100%</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

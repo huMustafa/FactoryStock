@@ -337,6 +337,68 @@ def supervisor_usage():
                          start_of_week=start_of_week,
                          end_of_week=end_of_week)
 
+@stock_bp.route('/receiver-usage')
+@login_required
+def receiver_usage():
+    if current_user.role != 'owner':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
+    from datetime import timedelta
+    import re
+    
+    # Get week parameter (default to current week)
+    week_offset = request.args.get('week', 0, type=int)
+    today = datetime.now().date()
+    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    end_of_week = start_of_week + timedelta(days=6)
+    
+    # Query OUT transactions for the selected week
+    transactions = Transaction.query.filter(
+        Transaction.transaction_type == 'OUT',
+        func.date(Transaction.executed_at) >= start_of_week,
+        func.date(Transaction.executed_at) <= end_of_week
+    ).all()
+    
+    # Extract receiver names from notes
+    receiver_data = {}
+    for tx in transactions:
+        receiver = None
+        if tx.notes:
+            # Try to extract "Given to: name" or "Handed to name"
+            if 'Given to:' in tx.notes:
+                receiver = tx.notes.split('Given to:')[-1].strip()
+            elif 'Handed to' in tx.notes:
+                receiver = tx.notes.split('Handed to')[-1].strip()
+        
+        if receiver:
+            if receiver not in receiver_data:
+                receiver_data[receiver] = {'total_kg': 0.0, 'transaction_count': 0}
+            receiver_data[receiver]['total_kg'] += float(tx.quantity_kg or 0)
+            receiver_data[receiver]['transaction_count'] += 1
+    
+    # Build result list
+    result = []
+    for receiver, data in receiver_data.items():
+        result.append({
+            'receiver': receiver,
+            'total_kg': data['total_kg'],
+            'transaction_count': data['transaction_count']
+        })
+    
+    # Sort by total kg descending
+    result.sort(key=lambda x: x['total_kg'], reverse=True)
+    
+    # Calculate grand total
+    grand_total_kg = sum(r['total_kg'] for r in result)
+    
+    return render_template('receiver_usage.html',
+                         usage_data=result,
+                         grand_total_kg=grand_total_kg,
+                         week_offset=week_offset,
+                         start_of_week=start_of_week,
+                         end_of_week=end_of_week)
+
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
 @login_required
 def stock_out(item_id):
