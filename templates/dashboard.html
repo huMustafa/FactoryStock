@@ -106,8 +106,8 @@
                                 <i class="fas fa-eye mr-1"></i> Details
                             </button>
                             
-                            <!-- NEW: Stock Out Button (Only for Store Keeper and Owner) -->
-                            {% if current_user.role in ['store_keeper', 'owner'] %}
+                            <!-- NEW: Stock Out Button (Only for Store Keeper) -->
+                            {% if current_user.role == 'store_keeper' %}
                             <a href="{{ url_for('stock.stock_out', item_id=stock.item.id) }}" 
                                class="px-3 py-1 text-xs font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors">
                                 <i class="fas fa-dolly mr-1"></i> Stock Out
