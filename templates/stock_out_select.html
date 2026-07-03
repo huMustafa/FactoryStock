@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Out - {{ item.display_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">Direct Stock Out</h1>
+                <p class="text-gray-600 mt-1">Deducting stock for: <span class="font-semibold text-blue-600">{{ item.display_name }}</span></p>
+            </div>
+            <a href="{{ url_for('stock.stock_directory') }}" 
+               class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700">
+                <i class="fas fa-arrow-left mr-2"></i>Back
+            </a>
+        </div>
+        
+        <form method="POST" id="stockOutForm" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Receiver Name (Required)</label>
+                <input type="text" name="notes" required 
+                       placeholder="e.g., Handed to Mr. Ahmed for Truck #123"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500">
+            </div>
+            
+            <!-- Stock Selection Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                                <input type="checkbox" id="selectAll" class="h-4 w-4 text-blue-600 rounded focus:ring-blue-500">
+                            </th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zone</th>
+                            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Available Pcs</th>
+                            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weight (kg)</th>
+                            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wt/Pc (kg)</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty to Deduct</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        {% for stock in stock_data %}
+                        <tr class="hover:bg-gray-50" data-stock-id="{{ stock.id }}">
+                            <td class="px-4 py-3">
+                                <input type="checkbox" name="stock_id" value="{{ stock.id }}" 
+                                       class="stock-checkbox h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                                       onchange="toggleQtyInput(this, 'qty_{{ stock.id }}')">
+                            </td>
+                            <td class="px-4 py-3">
+                                <span class="px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded">{{ stock.zone_code }}</span>
+                            </td>
+                            <td class="px-4 py-3 text-right font-medium">{{ "%.0f"|format(stock.quantity_pieces) }}</td>
+                            <td class="px-4 py-3 text-right">{{ "%.2f"|format(stock.quantity_kg) }}</td>
+                            <td class="px-4 py-3 text-right text-sm text-gray-500">{{ "%.4f"|format(stock.wt_per_piece) }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">{{ stock.date_received|format_date }}</td>
+                            <td class="px-4 py-3">
+                                <input type="number" name="quantity_{{ stock.id }}" id="qty_{{ stock.id }}"
+                                       step="0.01" min="0.01" max="{{ "%.2f"|format(stock.quantity_pieces) }}"
+                                       class="qty-input w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 disabled:bg-gray-100"
+                                       disabled placeholder="Select row first">
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Validation message -->
+            <div id="validationMsg" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                <span id="validationText">Please select at least one stock record and enter valid quantities.</span>
+            </div>
+            
+            <div class="flex gap-3 pt-4 border-t">
+                <a href="{{ url_for('stock.stock_directory') }}" 
+                   class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-center hover:bg-gray-50">
+                    Cancel
+                </a>
+                <button type="submit" id="submitBtn" disabled
+                        class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-dolly mr-2"></i>Confirm Stock Out
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('.stock-checkbox');
+    const selectAll = document.getElementById('selectAll');
+    const submitBtn = document.getElementById('submitBtn');
+    const validationMsg = document.getElementById('validationMsg');
+    
+    function updateSubmitState() {
+        let hasValidSelection = false;
+        
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                const qtyInput = document.getElementById('qty_' + cb.value);
+                const qty = parseFloat(qtyInput.value);
+                const max = parseFloat(qtyInput.max);
+                
+                if (!isNaN(qty) && qty > 0 && qty <= max) {
+                    hasValidSelection = true;
+                }
+            }
+        });
+        
+        submitBtn.disabled = !hasValidSelection;
+        validationMsg.classList.toggle('hidden', hasValidSelection);
+    }
+    
+    // Toggle quantity input when checkbox changes
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', function() {
+            const qtyInput = document.getElementById('qty_' + this.value);
+            qtyInput.disabled = !this.checked;
+            if (this.checked) {
+                qtyInput.focus();
+            } else {
+                qtyInput.value = '';
+            }
+            updateSubmitState();
+        });
+    });
+    
+    // Validate quantity inputs
+    document.querySelectorAll('.qty-input').forEach(input => {
+        input.addEventListener('input', function() {
+            const max = parseFloat(this.max);
+            const val = parseFloat(this.value);
+            
+            if (val > max) {
+                this.value = max;
+            }
+            if (val < 0.01 && this.value !== '') {
+                this.value = 0.01;
+            }
+            updateSubmitState();
+        });
+        
+        input.addEventListener('blur', function() {
+            if (this.value === '' || parseFloat(this.value) < 0.01) {
+                this.value = '';
+            }
+            updateSubmitState();
+        });
+    });
+    
+    // Select all checkbox
+    selectAll.addEventListener('change', function() {
+        checkboxes.forEach(cb => {
+            cb.checked = this.checked;
+            const qtyInput = document.getElementById('qty_' + cb.value);
+            qtyInput.disabled = !this.checked;
+            if (this.checked && qtyInput.value === '') {
+                qtyInput.value = qtyInput.max;
+            } else if (!this.checked) {
+                qtyInput.value = '';
+            }
+        });
+        updateSubmitState();
+    });
+    
+    // Form submission validation
+    document.getElementById('stockOutForm').addEventListener('submit', function(e) {
+        if (!validateForm()) {
+            e.preventDefault();
+            validationMsg.classList.remove('hidden');
+        }
+    });
+    
+    function validateForm() {
+        let valid = false;
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                const qtyInput = document.getElementById('qty_' + cb.value);
+                const qty = parseFloat(qtyInput.value);
+                const max = parseFloat(qtyInput.max);
+                if (!isNaN(qty) && qty > 0 && qty <= max) {
+                    valid = true;
+                }
+            }
+        });
+        return valid;
+    }
+});
+</script>
+{% endblock %}

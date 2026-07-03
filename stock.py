@@ -83,6 +83,19 @@ def stock_directory():
     # Calculate total stock weight (across all stock, regardless of filters)
     total_weight_kg = db.session.query(func.sum(Stock.quantity_kg)).filter(Stock.quantity_pieces > 0).scalar() or 0
     
+    # 1. Unprinted rolls + sheets total pieces (global, unfiltered)
+    total_unprinted_qty = db.session.query(func.sum(Stock.quantity_pieces))\
+        .join(Item)\
+        .filter(Stock.quantity_pieces > 0, Item.is_printed == False, Item.item_type.in_(['roll', 'sheet']))\
+        .scalar() or 0
+    
+    # 2. Weight by material (global, unfiltered)
+    material_weight_totals = dict(db.session.query(
+        Item.material, func.sum(Stock.quantity_kg)
+    ).join(Stock)
+        .filter(Stock.quantity_pieces > 0)
+        .group_by(Item.material).all())
+    
     return render_template('dashboard.html', 
                          stocks=stocks, 
                          materials=[m[0] for m in materials],
@@ -90,7 +103,9 @@ def stock_directory():
                          selected_material=material,
                          selected_type=item_type,
                          search_term=search,
-                         total_weight_kg=total_weight_kg)
+                         total_weight_kg=total_weight_kg,
+                         total_unprinted_qty=total_unprinted_qty,
+                         material_weight_totals=material_weight_totals)
 
 @stock_bp.route('/in', methods=['GET', 'POST'])
 @login_required
@@ -402,8 +417,8 @@ def receiver_usage():
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
 @login_required
 def stock_out(item_id):
-    # Only Store Keepers and Owners can do this
-    if current_user.role not in ['store_keeper', 'owner']:
+    # Only Store Keepers can do this
+    if current_user.role != 'store_keeper':
         flash('Permission denied.', 'error')
         return redirect(url_for('stock.stock_directory'))
 
@@ -413,48 +428,48 @@ def stock_out(item_id):
         return redirect(url_for('stock.stock_directory'))
 
     if request.method == 'POST':
-        quantity_to_deduct = validate_float(request.form.get('quantity_pieces', 0), 0.01, 100000)
         notes = sanitize_input(request.form.get('notes', ''), 500)
-
-        if quantity_to_deduct is None:
-            flash('Please enter a valid quantity.', 'error')
-            return redirect(request.url)
         
         if not notes:
             flash('Receiver name is required.', 'error')
             return redirect(request.url)
-
-        # Get available stock for this item, oldest first (FIFO)
-        available_stocks = Stock.query.filter_by(item_id=item.id)\
-            .filter(Stock.quantity_pieces > 0)\
-            .order_by(Stock.date_received.asc()).all()
-
-        total_available = sum(s.quantity_pieces for s in available_stocks)
-        if total_available < quantity_to_deduct:
-            flash(f'Not enough stock! Available: {total_available:.2f}, Requested: {quantity_to_deduct:.2f}', 'error')
-            return redirect(request.url)
-
-        # Deduct stock
-        remaining = quantity_to_deduct
         
-        for stock in available_stocks:
-            if remaining <= 0:
-                break
+        # Get selected stock records
+        stock_ids = request.form.getlist('stock_id')
+        if not stock_ids:
+            flash('Please select at least one stock record.', 'error')
+            return redirect(request.url)
+        
+        total_deducted_pieces = 0
+        total_deducted_kg = 0
+        
+        for stock_id in stock_ids:
+            stock = db.session.get(Stock, int(stock_id))
+            if not stock or stock.item_id != item.id:
+                continue
             
-            deduct_amount = min(stock.quantity_pieces, remaining)
-            stock.quantity_pieces -= deduct_amount
-            remaining -= deduct_amount
+            qty_str = request.form.get(f'quantity_{stock_id}', '0')
+            qty = validate_float(qty_str, 0.01, stock.quantity_pieces)
             
-            # Calculate proportional KG to deduct so your weights stay accurate
-            original_pieces = stock.quantity_pieces + deduct_amount
+            if qty is None or qty > stock.quantity_pieces:
+                flash(f'Invalid quantity for stock #{stock_id}.', 'error')
+                return redirect(request.url)
+            
+            # Calculate proportional KG
+            original_pieces = stock.quantity_pieces
             if original_pieces > 0:
                 kg_ratio = stock.quantity_kg / original_pieces
-                deduct_kg = deduct_amount * kg_ratio
-                stock.quantity_kg -= deduct_kg
+                deduct_kg = qty * kg_ratio
             else:
                 deduct_kg = 0
-
-            # Log the transaction matching YOUR detailed Transaction model
+            
+            # Deduct from stock
+            stock.quantity_pieces -= qty
+            stock.quantity_kg -= deduct_kg
+            total_deducted_pieces += qty
+            total_deducted_kg += deduct_kg
+            
+            # Log transaction
             transaction = Transaction(
                 transaction_type='OUT',
                 item_type=item.item_type,
@@ -465,7 +480,7 @@ def stock_out(item_id):
                 is_printed=item.is_printed,
                 buyer_name=item.buyer_name,
                 zone_code=stock.zone_code,
-                quantity_pieces=deduct_amount,
+                quantity_pieces=qty,
                 quantity_kg=deduct_kg,
                 user_id=current_user.id,
                 notes=f"Direct Stock Out - Given to: {notes}",
@@ -475,14 +490,40 @@ def stock_out(item_id):
                 handle_type=item.handle_type
             )
             db.session.add(transaction)
-
+        
+        if total_deducted_pieces == 0:
+            flash('No valid quantities entered.', 'error')
+            return redirect(request.url)
+        
         db.session.commit()
         
         # Audit log
         current_app.log_audit('stock', item.id, 'DELETE', 
-                             {'quantity': quantity_to_deduct}, {'deducted': quantity_to_deduct})
+                             {'quantity': total_deducted_pieces}, {'deducted': total_deducted_pieces})
         
-        flash(f'Successfully stocked out {quantity_to_deduct:.2f} pieces of {item.display_name}.', 'success')
+        flash(f'Successfully stocked out {total_deducted_pieces:.2f} pieces ({total_deducted_kg:.2f} kg) of {item.display_name}.', 'success')
         return redirect(url_for('stock.stock_directory'))
 
-    return render_template('stock_out.html', item=item)                         
+    # GET - show stock selection
+    available_stocks = Stock.query.filter_by(item_id=item.id)\
+        .filter(Stock.quantity_pieces > 0)\
+        .order_by(Stock.date_received.asc()).all()
+    
+    if not available_stocks:
+        flash('No stock available for this item.', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
+    # Calculate weight per piece for each stock record
+    stock_data = []
+    for stock in available_stocks:
+        wt_per_piece = stock.quantity_kg / stock.quantity_pieces if stock.quantity_pieces > 0 else 0
+        stock_data.append({
+            'id': stock.id,
+            'zone_code': stock.zone_code,
+            'quantity_pieces': stock.quantity_pieces,
+            'quantity_kg': stock.quantity_kg,
+            'wt_per_piece': wt_per_piece,
+            'date_received': stock.date_received
+        })
+    
+    return render_template('stock_out_select.html', item=item, stock_data=stock_data)                         

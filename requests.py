@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, jsonify
 from flask_login import login_required, current_user
 from models import db, Request, Item, Stock, Transaction
 from datetime import datetime
@@ -81,6 +81,48 @@ def create_request():
     flash('Request submitted successfully', 'success')
     return redirect(url_for('requests.requests_list'))
 
+@requests_bp.route('/<int:request_id>/fulfill', methods=['GET'])
+@login_required
+def fulfill_request_view(request_id):
+    """Show stock selection for fulfilling a request"""
+    if current_user.role != 'store_keeper':
+        flash('Only store keepers can fulfill requests', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    req = Request.query.get_or_404(request_id)
+    
+    if req.status != 'pending':
+        flash('Request already fulfilled', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    # Get available stock for this item
+    available_stocks = Stock.query.filter_by(item_id=req.item_id)\
+        .filter(Stock.quantity_pieces > 0)\
+        .order_by(Stock.date_received.asc()).all()
+    
+    total_available = sum(s.quantity_pieces for s in available_stocks)
+    if total_available < req.quantity_pieces_requested:
+        flash(f'Insufficient stock available. Available: {total_available:.2f}, Requested: {req.quantity_pieces_requested:.2f}', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    # Prepare stock data with weight_per_piece
+    stocks_data = []
+    for stock in available_stocks:
+        weight_per_piece = stock.quantity_kg / stock.quantity_pieces if stock.quantity_pieces > 0 else 0
+        stocks_data.append({
+            'id': stock.id,
+            'zone_code': stock.zone_code,
+            'quantity_pieces': stock.quantity_pieces,
+            'quantity_kg': stock.quantity_kg,
+            'weight_per_piece': weight_per_piece,
+            'date_received': stock.date_received
+        })
+    
+    return render_template('request_fulfill_select.html', 
+                         req=req, 
+                         stocks_data=stocks_data,
+                         total_available=total_available)
+
 @requests_bp.route('/<int:request_id>/fulfill', methods=['POST'])
 @login_required
 def fulfill_request(request_id):
@@ -100,15 +142,34 @@ def fulfill_request(request_id):
         flash('Receiver name is required.', 'error')
         return redirect(url_for('requests.requests_list'))
     
-    # Get available stock for this item, oldest first (FIFO)
-    available_stocks = Stock.query.filter_by(item_id=req.item_id)\
-        .filter(Stock.quantity_pieces > 0)\
-        .order_by(Stock.date_received.asc()).all()
+    # Get selected stock records and quantities
+    stock_ids = request.form.getlist('stock_id')
+    quantities = request.form.getlist('quantity')
     
-    total_available = sum(s.quantity_pieces for s in available_stocks)
-    if total_available < req.quantity_pieces_requested:
-        flash(f'Insufficient stock available. Available: {total_available:.2f}, Requested: {req.quantity_pieces_requested:.2f}', 'error')
-        return redirect(url_for('requests.requests_list'))
+    if not stock_ids:
+        flash('Please select at least one stock record.', 'error')
+        return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
+    
+    # Validate and process selections
+    selected_stocks = []
+    total_selected_qty = 0
+    
+    for i, stock_id in enumerate(stock_ids):
+        qty = validate_float(quantities[i], 0.01, 100000)
+        if qty is None:
+            continue
+        
+        stock = Stock.query.get(stock_id)
+        if not stock or stock.quantity_pieces < qty:
+            flash(f'Invalid quantity for stock record #{stock_id}', 'error')
+            return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
+        
+        selected_stocks.append({'stock': stock, 'qty': qty})
+        total_selected_qty += qty
+    
+    if total_selected_qty < req.quantity_pieces_requested:
+        flash(f'Selected quantity ({total_selected_qty:.2f}) is less than requested ({req.quantity_pieces_requested:.2f})', 'error')
+        return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
     
     # Get item details for transaction
     item = Item.query.get(req.item_id)
@@ -116,18 +177,14 @@ def fulfill_request(request_id):
         flash('Item no longer exists', 'error')
         return redirect(url_for('requests.requests_list'))
     
-    # Deduct stock using FIFO (same logic as stock_out)
-    remaining = req.quantity_pieces_requested
-    
-    for stock in available_stocks:
-        if remaining <= 0:
-            break
+    # Deduct from selected stock records
+    for selection in selected_stocks:
+        stock = selection['stock']
+        deduct_amount = selection['qty']
         
-        deduct_amount = min(stock.quantity_pieces, remaining)
         stock.quantity_pieces -= deduct_amount
-        remaining -= deduct_amount
         
-        # Calculate proportional KG to deduct
+        # Calculate proportional KG
         original_pieces = stock.quantity_pieces + deduct_amount
         if original_pieces > 0:
             kg_ratio = stock.quantity_kg / original_pieces
@@ -136,7 +193,7 @@ def fulfill_request(request_id):
         else:
             deduct_kg = 0
         
-        # Create transaction for each stock record
+        # Create transaction
         transaction = Transaction(
             transaction_type='OUT',
             item_type=item.item_type,

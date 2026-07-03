@@ -22,6 +22,34 @@
         </div>
     </div>
     
+    <!-- Summary Cards Row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+        <!-- Unprinted Rolls & Sheets -->
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-600 col-span-1 sm:col-span-2 lg:col-span-2">
+            <p class="text-sm text-gray-500">Unprinted Rolls & Sheets</p>
+            <p class="text-2xl font-bold text-gray-900">{{ "%.0f"|format(total_unprinted_qty) }} pcs</p>
+        </div>
+        
+        <!-- Material Weights Table Card -->
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-green-600 col-span-1 sm:col-span-2 lg:col-span-4">
+            <p class="text-sm text-gray-500 mb-2">Material Weights (Global)</p>
+            <table class="w-full text-sm">
+                <tbody class="divide-y divide-gray-100">
+                    {% for mat, wt in material_weight_totals.items() %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="py-1 font-medium">{{ mat }}</td>
+                        <td class="py-1 text-right font-semibold text-gray-900">{{ "%.2f"|format(wt) }} kg</td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="border-t font-bold bg-gray-50">
+                        <td class="py-1">Total</td>
+                        <td class="py-1 text-right">{{ "%.2f"|format(total_weight_kg) }} kg</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
     <!-- Filters -->
     <div class="bg-white rounded-lg shadow p-4">
         <form method="GET" class="flex flex-wrap gap-4">
