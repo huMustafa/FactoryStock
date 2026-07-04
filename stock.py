@@ -215,25 +215,15 @@ def stock_in():
             db.session.add(item)
             db.session.flush()  # Get item ID
         
-        # Create or update stock record
-        existing_stock = Stock.query.filter_by(
+        # Always create a new stock record (no merging)
+        stock = Stock(
             item_id=item.id,
             zone_code=zone_code,
+            quantity_pieces=quantity,
+            quantity_kg=weight,
             date_received=date_received
-        ).first()
-        
-        if existing_stock:
-            existing_stock.quantity_pieces += quantity
-            existing_stock.quantity_kg += weight
-        else:
-            stock = Stock(
-                item_id=item.id,
-                zone_code=zone_code,
-                quantity_pieces=quantity,
-                quantity_kg=weight,
-                date_received=date_received
-            )
-            db.session.add(stock)
+        )
+        db.session.add(stock)
         
         # Log transaction
         transaction = Transaction(
@@ -387,16 +377,23 @@ def receiver_usage():
                 receiver = tx.notes.split('Handed to')[-1].strip()
         
         if receiver:
-            if receiver not in receiver_data:
-                receiver_data[receiver] = {'total_kg': 0.0, 'transaction_count': 0}
-            receiver_data[receiver]['total_kg'] += float(tx.quantity_kg or 0)
-            receiver_data[receiver]['transaction_count'] += 1
+            # Normalize for grouping (case-insensitive)
+            normalized = receiver.strip().title()  # "ahmed" -> "Ahmed"
+            
+            if normalized not in receiver_data:
+                receiver_data[normalized] = {
+                    'display_name': receiver,  # preserve original casing for display
+                    'total_kg': 0.0,
+                    'transaction_count': 0
+                }
+            receiver_data[normalized]['total_kg'] += float(tx.quantity_kg or 0)
+            receiver_data[normalized]['transaction_count'] += 1
     
     # Build result list
     result = []
-    for receiver, data in receiver_data.items():
+    for normalized, data in receiver_data.items():
         result.append({
-            'receiver': receiver,
+            'receiver': data['display_name'],  # show original casing
             'total_kg': data['total_kg'],
             'transaction_count': data['transaction_count']
         })
