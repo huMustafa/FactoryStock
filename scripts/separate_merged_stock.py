@@ -26,59 +26,96 @@ db.init_app(app)
 
 
 def find_merged_groups():
-    """Find (item_id, zone_code, date_received) groups with >1 IN Transaction."""
-    # Join Transaction with Item to get item_id, then group
-    subq = db.session.query(
-        Item.id.label('item_id'),
+    """Find merged groups by grouping Transaction fields directly (no Item join)."""
+    # Group by all Transaction fields that define an item + zone + date
+    groups = db.session.query(
+        Transaction.item_type,
+        Transaction.material,
+        Transaction.width_inches,
+        Transaction.length_inches,
+        Transaction.micron_label,
+        Transaction.is_printed,
+        Transaction.buyer_name,
         Transaction.zone_code,
         func.date(Transaction.executed_at).label('executed_date'),
         func.count(Transaction.id).label('txn_count'),
         func.sum(Transaction.quantity_pieces).label('total_pieces'),
         func.sum(Transaction.quantity_kg).label('total_kg'),
-    ).join(
-        Item,
-        (Item.item_type == Transaction.item_type) &
-        (Item.material == Transaction.material) &
-        (Item.width_inches == Transaction.width_inches) &
-        (Item.length_inches == Transaction.length_inches) &
-        (Item.micron_label == Transaction.micron_label) &
-        (Item.is_printed == Transaction.is_printed) &
-        ((Item.buyer_name == Transaction.buyer_name) | ((Item.buyer_name.is_(None)) & (Transaction.buyer_name.is_(None))))
     ).filter(
         Transaction.transaction_type == 'IN'
     ).group_by(
-        Item.id,
+        Transaction.item_type,
+        Transaction.material,
+        Transaction.width_inches,
+        Transaction.length_inches,
+        Transaction.micron_label,
+        Transaction.is_printed,
+        Transaction.buyer_name,
         Transaction.zone_code,
         func.date(Transaction.executed_at)
     ).having(
         func.count(Transaction.id) > 1
-    ).subquery()
-
-    results = db.session.query(
-        subq.c.item_id,
-        subq.c.zone_code,
-        subq.c.executed_date,
-        subq.c.txn_count,
-        subq.c.total_pieces,
-        subq.c.total_kg,
     ).all()
+
+    # For each group, find the Item and matching Stock record
+    results = []
+    for g in groups:
+        item = Item.query.filter_by(
+            item_type=g.item_type,
+            material=g.material,
+            width_inches=g.width_inches,
+            length_inches=g.length_inches,
+            micron_label=g.micron_label,
+            is_printed=g.is_printed,
+            buyer_name=g.buyer_name
+        ).first()
+
+        if item:
+            stock = Stock.query.filter(
+                Stock.item_id == item.id,
+                Stock.zone_code == g.zone_code,
+                Stock.date_received == g.executed_date
+            ).first()
+
+            if stock:
+                # Convert executed_date string to Python date object
+                if isinstance(g.executed_date, str):
+                    from datetime import datetime
+                    date_received = datetime.strptime(g.executed_date, '%Y-%m-%d').date()
+                else:
+                    date_received = g.executed_date
+                    
+                results.append({
+                    'item_id': item.id,
+                    'item_type': g.item_type,
+                    'material': g.material,
+                    'width_inches': g.width_inches,
+                    'length_inches': g.length_inches,
+                    'micron_label': g.micron_label,
+                    'is_printed': g.is_printed,
+                    'buyer_name': g.buyer_name,
+                    'zone_code': g.zone_code,
+                    'date_received': date_received,
+                    'txn_count': g.txn_count,
+                    'total_pieces': g.total_pieces,
+                    'total_kg': g.total_kg,
+                    'stock_id': stock.id
+                })
 
     return results
 
 
-def get_transactions_for_group(item_id, zone_code, executed_date):
+def get_transactions_for_group(item_type, material, width_inches, length_inches, micron_label, is_printed, buyer_name, zone_code, executed_date):
     """Get all IN transactions for a group ordered by executed_at."""
-    item = db.session.get(Item, item_id)
-    if not item:
-        return []
     return Transaction.query.filter(
         Transaction.transaction_type == 'IN',
-        Transaction.item_type == item.item_type,
-        Transaction.material == item.material,
-        Transaction.width_inches == item.width_inches,
-        Transaction.length_inches == item.length_inches,
-        Transaction.micron_label == item.micron_label,
-        Transaction.is_printed == item.is_printed,
+        Transaction.item_type == item_type,
+        Transaction.material == material,
+        Transaction.width_inches == width_inches,
+        Transaction.length_inches == length_inches,
+        Transaction.micron_label == micron_label,
+        Transaction.is_printed == is_printed,
+        Transaction.buyer_name == buyer_name,
         Transaction.zone_code == zone_code,
         func.date(Transaction.executed_at) == executed_date
     ).order_by(Transaction.executed_at).all()
@@ -98,11 +135,14 @@ def print_dry_run_table(groups):
     print(f"\n{'OLD_STOCK_ID':<12} {'ITEM_ID':<8} {'ZONE':<8} {'DATE':<12} {'TXNS':<5} {'PCS':<6} {'KG':<8} {'NEW_STOCKS'}")
     print("-" * 100)
     for g in groups:
-        txns = get_transactions_for_group(g.item_id, g.zone_code, g.executed_date)
-        stock = get_matching_stock(g.item_id, g.zone_code, g.executed_date)
-        old_id = stock.id if stock else 'NONE'
-        new_stocks = ', '.join([f"#{t.id}(1pc,{t.quantity_kg:.2f}kg)" for t in txns])
-        print(f"{old_id:<12} {g.item_id:<8} {g.zone_code:<8} {g.executed_date:<12} {g.txn_count:<5} {g.total_pieces:<6.0f} {g.total_kg:<8.2f} {new_stocks}")
+        txns = get_transactions_for_group(
+            g['item_type'], g['material'], g['width_inches'], g['length_inches'],
+            g['micron_label'], g['is_printed'], g['buyer_name'],
+            g['zone_code'], g['date_received']
+        )
+        old_id = g['stock_id']
+        new_stocks = ', '.join([f"#{t.id}({t.quantity_pieces:.0f}pc,{t.quantity_kg:.2f}kg)" for t in txns])
+        print(f"{old_id:<12} {g['item_id']:<8} {g['zone_code']:<8} {g['date_received']:<12} {g['txn_count']:<5} {g['total_pieces']:<6.0f} {g['total_kg']:<8.2f} {new_stocks}")
 
 
 def separate_merged_stock(dry_run=False, verbose=False):
@@ -125,12 +165,16 @@ def separate_merged_stock(dry_run=False, verbose=False):
     
     try:
         for g in groups:
-            txns = get_transactions_for_group(g.item_id, g.zone_code, g.executed_date)
-            stock = get_matching_stock(g.item_id, g.zone_code, g.executed_date)
+            txns = get_transactions_for_group(
+                g['item_type'], g['material'], g['width_inches'], g['length_inches'],
+                g['micron_label'], g['is_printed'], g['buyer_name'],
+                g['zone_code'], g['date_received']
+            )
+            stock = get_matching_stock(g['item_id'], g['zone_code'], g['date_received'])
             
             if not stock:
                 if verbose:
-                    print(f"  No matching stock for item_id={g.item_id}, zone={g.zone_code}, date={g.executed_date} - skipping")
+                    print(f"  No matching stock for item_id={g['item_id']}, zone={g['zone_code']}, date={g['date_received']} - skipping")
                 continue
             
             old_stock_id = stock.id
@@ -138,7 +182,7 @@ def separate_merged_stock(dry_run=False, verbose=False):
             old_qty_kg = stock.quantity_kg
             
             if verbose:
-                print(f"\nSeparating stock #{old_stock_id} (item={g.item_id}, zone={g.zone_code}, date={g.executed_date})")
+                print(f"\nSeparating stock #{old_stock_id} (item={g['item_id']}, zone={g['zone_code']}, date={g['date_received']})")
                 print(f"  Original: {old_qty_pieces}pcs, {old_qty_kg:.2f}kg")
                 print(f"  Transactions: {len(txns)}")
             
@@ -146,11 +190,11 @@ def separate_merged_stock(dry_run=False, verbose=False):
             new_stock_ids = []
             for t in txns:
                 new_stock = Stock(
-                    item_id=g.item_id,
-                    zone_code=g.zone_code,
+                    item_id=g['item_id'],
+                    zone_code=g['zone_code'],
                     quantity_pieces=t.quantity_pieces,
                     quantity_kg=t.quantity_kg,
-                    date_received=g.executed_date
+                    date_received=g['date_received']
                 )
                 db.session.add(new_stock)
                 db.session.flush()  # Get new ID
@@ -166,12 +210,17 @@ def separate_merged_stock(dry_run=False, verbose=False):
             # Delete old merged stock
             db.session.delete(stock)
             
-            # Audit log
-            from flask import current_app
-            if current_app:
-                current_app.log_audit('stock', old_stock_id, 'DELETE',
-                                     {'quantity_pieces': old_qty_pieces, 'quantity_kg': old_qty_kg},
-                                     {'split_into': len(new_stock_ids), 'new_stock_ids': new_stock_ids})
+            # Audit log (direct, without current_app.log_audit)
+            from models import AuditLog
+            audit = AuditLog(
+                table_name='stock',
+                record_id=old_stock_id,
+                action='DELETE',
+                old_values=str({'quantity_pieces': old_qty_pieces, 'quantity_kg': old_qty_kg}),
+                new_values=str({'split_into': len(new_stock_ids), 'new_stock_ids': new_stock_ids}),
+                changed_by=1  # System user
+            )
+            db.session.add(audit)
             
             total_separated += 1
             total_new_records += len(new_stock_ids)
@@ -193,7 +242,7 @@ def verify_separation():
     """Verify Stock count == IN Transaction count per item/zone/date."""
     print("\nVerifying separation...")
     
-    # Check stock groups
+    # Check stock groups (by Stock.item_id, zone_code, date_received)
     stock_groups = db.session.query(
         Stock.item_id,
         Stock.zone_code,
@@ -208,9 +257,15 @@ def verify_separation():
         func.count(Stock.id) > 1
     ).all()
     
-    # Check transaction groups
+    # Check transaction groups (by Transaction fields, matching find_merged_groups logic)
     txn_groups = db.session.query(
-        Transaction.item_id,
+        Transaction.item_type,
+        Transaction.material,
+        Transaction.width_inches,
+        Transaction.length_inches,
+        Transaction.micron_label,
+        Transaction.is_printed,
+        Transaction.buyer_name,
         Transaction.zone_code,
         func.date(Transaction.executed_at).label('executed_date'),
         func.count(Transaction.id).label('txn_count'),
@@ -218,7 +273,13 @@ def verify_separation():
     ).filter(
         Transaction.transaction_type == 'IN'
     ).group_by(
-        Transaction.item_id,
+        Transaction.item_type,
+        Transaction.material,
+        Transaction.width_inches,
+        Transaction.length_inches,
+        Transaction.micron_label,
+        Transaction.is_printed,
+        Transaction.buyer_name,
         Transaction.zone_code,
         func.date(Transaction.executed_at)
     ).having(
@@ -238,11 +299,11 @@ def verify_separation():
     if txn_groups:
         print(f"  INFO: {len(txn_groups)} transaction group(s) with multiple IN transactions:")
         for g in txn_groups:
-            print(f"    item={g.item_id}, zone={g.zone_code}, date={g.executed_date}: {g.txn_count} txns, {g.total_pieces}pcs")
+            print(f"    {g.item_type}|{g.material}|{g.width_inches}|{g.length_inches}|{g.micron_label}|{g.is_printed}|{g.buyer_name}|{g.zone_code}|{g.executed_date}: {g.txn_count} txns, {g.total_pieces}pcs")
     else:
         print("  OK: No transaction groups with multiple IN transactions.")
     
-    # Verify counts match
+    # Verify counts match: compare Stock (by item_id) with Transaction (by specs -> item_id)
     stock_by_group = db.session.query(
         Stock.item_id,
         Stock.zone_code,
@@ -256,8 +317,15 @@ def verify_separation():
         Stock.date_received
     ).all()
     
-    txn_by_group = db.session.query(
-        Transaction.item_id,
+    # Get Transaction groups, then join to Item to get item_id
+    txn_by_group_raw = db.session.query(
+        Transaction.item_type,
+        Transaction.material,
+        Transaction.width_inches,
+        Transaction.length_inches,
+        Transaction.micron_label,
+        Transaction.is_printed,
+        Transaction.buyer_name,
         Transaction.zone_code,
         func.date(Transaction.executed_at).label('executed_date'),
         func.count(Transaction.id).label('txn_count'),
@@ -266,13 +334,42 @@ def verify_separation():
     ).filter(
         Transaction.transaction_type == 'IN'
     ).group_by(
-        Transaction.item_id,
+        Transaction.item_type,
+        Transaction.material,
+        Transaction.width_inches,
+        Transaction.length_inches,
+        Transaction.micron_label,
+        Transaction.is_printed,
+        Transaction.buyer_name,
         Transaction.zone_code,
         func.date(Transaction.executed_at)
     ).all()
     
+    # Map transaction groups to item_ids
+    txn_by_group = {}
+    for t in txn_by_group_raw:
+        item = Item.query.filter_by(
+            item_type=t.item_type,
+            material=t.material,
+            width_inches=t.width_inches,
+            length_inches=t.length_inches,
+            micron_label=t.micron_label,
+            is_printed=t.is_printed,
+            buyer_name=t.buyer_name
+        ).first()
+        if item:
+            key = (item.id, t.zone_code, t.executed_date)
+            txn_by_group[key] = type('obj', (object,), {
+                'item_id': item.id,
+                'zone_code': t.zone_code,
+                'executed_date': t.executed_date,
+                'txn_count': t.txn_count,
+                'txn_pieces': t.txn_pieces,
+                'txn_kg': t.txn_kg
+            })()
+    
     stock_dict = {(s.item_id, s.zone_code, s.date_received): s for s in stock_by_group}
-    txn_dict = {(t.item_id, t.zone_code, t.executed_date): t for t in txn_by_group}
+    txn_dict = {(t.item_id, t.zone_code, t.executed_date): t for t in txn_by_group.values()}
     
     all_keys = set(stock_dict.keys()) | set(txn_dict.keys())
     mismatch = 0
