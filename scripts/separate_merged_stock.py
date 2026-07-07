@@ -10,11 +10,19 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import create_app
+from flask import Flask
 from models import db, Stock, Transaction, Item
 from sqlalchemy import func
 
-app = create_app()
+# Use instance folder for database
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, 'instance', 'factory_stock.db')
+
+# Create minimal Flask app with correct database URI
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
 
 
 def find_merged_groups():
