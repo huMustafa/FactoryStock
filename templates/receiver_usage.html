@@ -9,27 +9,37 @@
             <i class="fas fa-user-tag text-purple-600"></i>
             Receiver Stock Usage
         </h1>
-        <p class="text-gray-600 mt-1">Weekly report of stock given out by receiver name</p>
+        <p class="text-gray-600 mt-1">Daily report of stock given out by receiver name</p>
     </div>
     
-    <!-- Week Navigation -->
+    <!-- Date Navigation -->
     <div class="bg-white rounded-lg shadow p-4 flex items-center justify-between">
         <div class="flex items-center gap-4">
-            <a href="{{ url_for('stock.receiver_usage', week=week_offset - 1) }}"
+            <a href="{{ url_for('stock.receiver_usage', date=prev_date.strftime('%Y-%m-%d')) }}"
                class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
-                <i class="fas fa-chevron-left"></i> Previous Week
+                <i class="fas fa-chevron-left"></i> Previous Day
             </a>
             <span class="px-6 py-2 bg-purple-50 text-purple-700 rounded-lg font-medium">
-                {{ start_of_week|format_date }} - {{ end_of_week|format_date }}
+                {{ selected_date|format_date }}
             </span>
-            <a href="{{ url_for('stock.receiver_usage', week=week_offset + 1) }}"
+            <a href="{{ url_for('stock.receiver_usage', date=next_date.strftime('%Y-%m-%d')) }}"
                class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
-                Next Week <i class="fas fa-chevron-right"></i>
+                Next Day <i class="fas fa-chevron-right"></i>
             </a>
+        </div>
+        <div class="flex items-center gap-2">
+            <label class="text-sm text-gray-700">Select Date:</label>
+            <form method="GET" action="{{ url_for('stock.receiver_usage') }}" class="flex items-center gap-2">
+                <input type="date" name="date" value="{{ selected_date.strftime('%Y-%m-%d') }}"
+                       class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                    Go
+                </button>
+            </form>
         </div>
         <a href="{{ url_for('stock.receiver_usage') }}" 
            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
-            This Week
+            Today
         </a>
     </div>
     
@@ -93,7 +103,7 @@
                     <tr>
                         <td colspan="5" class="px-6 py-12 text-center text-gray-500">
                             <i class="fas fa-user-tag text-4xl mb-3 text-gray-300"></i>
-                            <p>No stock outs recorded this week</p>
+                            <p>No stock outs recorded for {{ selected_date|format_date }}</p>
                         </td>
                     </tr>
                     {% endfor %}

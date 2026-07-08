@@ -43,6 +43,8 @@ def stock_directory():
     search = request.args.get('search', '')
     material = request.args.get('material', 'all')
     item_type = request.args.get('type', 'all')
+    micron_search = request.args.get('micron_search', '')
+    width_search = request.args.get('width_search', '')
     
     # Build query
     query = Stock.query.join(Item).join(Zone)
@@ -66,6 +68,12 @@ def stock_directory():
             )
         )
     # ----------------------------
+    
+    if micron_search:
+        query = query.filter(func.lower(Item.micron_label).like(f'%{micron_search.lower()}%'))
+    
+    if width_search:
+        query = query.filter(db.cast(Item.width_inches, db.String).like(f'%{width_search}%'))
     
     if material != 'all':
         query = query.filter(Item.material == material)
@@ -103,6 +111,8 @@ def stock_directory():
                          selected_material=material,
                          selected_type=item_type,
                          search_term=search,
+                         micron_search=micron_search,
+                         width_search=width_search,
                          total_weight_kg=total_weight_kg,
                          total_unprinted_qty=total_unprinted_qty,
                          material_weight_totals=material_weight_totals)
@@ -345,24 +355,27 @@ def supervisor_usage():
 @stock_bp.route('/receiver-usage')
 @login_required
 def receiver_usage():
-    if current_user.role != 'owner':
+    if current_user.role not in ['owner', 'store_keeper']:
         flash('Unauthorized access', 'error')
         return redirect(url_for('stock.stock_directory'))
     
     from datetime import timedelta
     import re
     
-    # Get week parameter (default to current week)
-    week_offset = request.args.get('week', 0, type=int)
-    today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
-    end_of_week = start_of_week + timedelta(days=6)
+    # Get date parameter (default to today)
+    date_str = request.args.get('date')
+    if date_str:
+        try:
+            selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            selected_date = datetime.now().date()
+    else:
+        selected_date = datetime.now().date()
     
-    # Query OUT transactions for the selected week
+    # Query OUT transactions for the selected date
     transactions = Transaction.query.filter(
         Transaction.transaction_type == 'OUT',
-        func.date(Transaction.executed_at) >= start_of_week,
-        func.date(Transaction.executed_at) <= end_of_week
+        func.date(Transaction.executed_at) == selected_date
     ).all()
     
     # Extract receiver names from notes
@@ -407,9 +420,9 @@ def receiver_usage():
     return render_template('receiver_usage.html',
                          usage_data=result,
                          grand_total_kg=grand_total_kg,
-                         week_offset=week_offset,
-                         start_of_week=start_of_week,
-                         end_of_week=end_of_week)
+                         selected_date=selected_date,
+                         prev_date=selected_date - timedelta(days=1),
+                         next_date=selected_date + timedelta(days=1))
 
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
 @login_required

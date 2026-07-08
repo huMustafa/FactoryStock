@@ -2,6 +2,12 @@
 """
 Separate merged stock records using Transaction history.
 Run inside Flask app context.
+
+NEW LOGIC: Iterate each Stock record, find matching IN Transactions.
+Only split if:
+  1. Stock.quantity_pieces > 1
+  2. Matching IN Transactions > 1
+  3. Sum of Transaction pieces/kg matches Stock pieces/kg (within 0.01 tolerance)
 """
 import argparse
 import sys
@@ -11,152 +17,92 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask
-from models import db, Stock, Transaction, Item
+from models import db, Stock, Transaction, Item, AuditLog
 from sqlalchemy import func
-
-# Use instance folder for database
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, 'instance', 'factory_stock.db')
-
-# Create minimal Flask app with correct database URI
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db.init_app(app)
+from datetime import datetime
 
 
-def find_merged_groups():
-    """Find merged groups by grouping Transaction fields directly (no Item join)."""
-    # Group by all Transaction fields that define an item + zone + date
-    groups = db.session.query(
-        Transaction.item_type,
-        Transaction.material,
-        Transaction.width_inches,
-        Transaction.length_inches,
-        Transaction.micron_label,
-        Transaction.is_printed,
-        Transaction.buyer_name,
-        Transaction.zone_code,
-        func.date(Transaction.executed_at).label('executed_date'),
-        func.count(Transaction.id).label('txn_count'),
-        func.sum(Transaction.quantity_pieces).label('total_pieces'),
-        func.sum(Transaction.quantity_kg).label('total_kg'),
-    ).filter(
-        Transaction.transaction_type == 'IN'
-    ).group_by(
-        Transaction.item_type,
-        Transaction.material,
-        Transaction.width_inches,
-        Transaction.length_inches,
-        Transaction.micron_label,
-        Transaction.is_printed,
-        Transaction.buyer_name,
-        Transaction.zone_code,
-        func.date(Transaction.executed_at)
-    ).having(
-        func.count(Transaction.id) > 1
-    ).all()
+def create_app(db_path):
+    """Create Flask app with given database path."""
+    app = Flask(__name__)
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    db.init_app(app)
+    return app
 
-    # For each group, find the Item and matching Stock record
+
+def find_merged_stocks():
+    """
+    Find Stock records that need splitting.
+    Returns list of (stock, matching_transactions) tuples.
+    """
+    # Get all stock records with quantity_pieces > 1
+    stocks = Stock.query.filter(Stock.quantity_pieces > 1).all()
+    
     results = []
-    for g in groups:
-        item = Item.query.filter_by(
-            item_type=g.item_type,
-            material=g.material,
-            width_inches=g.width_inches,
-            length_inches=g.length_inches,
-            micron_label=g.micron_label,
-            is_printed=g.is_printed,
-            buyer_name=g.buyer_name
-        ).first()
-
-        if item:
-            stock = Stock.query.filter(
-                Stock.item_id == item.id,
-                Stock.zone_code == g.zone_code,
-                Stock.date_received == g.executed_date
-            ).first()
-
-            if stock:
-                # Convert executed_date string to Python date object
-                if isinstance(g.executed_date, str):
-                    from datetime import datetime
-                    date_received = datetime.strptime(g.executed_date, '%Y-%m-%d').date()
-                else:
-                    date_received = g.executed_date
-                    
-                results.append({
-                    'item_id': item.id,
-                    'item_type': g.item_type,
-                    'material': g.material,
-                    'width_inches': g.width_inches,
-                    'length_inches': g.length_inches,
-                    'micron_label': g.micron_label,
-                    'is_printed': g.is_printed,
-                    'buyer_name': g.buyer_name,
-                    'zone_code': g.zone_code,
-                    'date_received': date_received,
-                    'txn_count': g.txn_count,
-                    'total_pieces': g.total_pieces,
-                    'total_kg': g.total_kg,
-                    'stock_id': stock.id
-                })
-
+    for stock in stocks:
+        item = db.session.get(Item, stock.item_id)
+        if not item:
+            continue
+        
+        # Find matching IN transactions (same logic as debug script)
+        matching_txns = Transaction.query.filter(
+            Transaction.transaction_type == 'IN',
+            Transaction.item_type == item.item_type,
+            Transaction.material == item.material,
+            Transaction.width_inches == item.width_inches,
+            Transaction.length_inches == item.length_inches,
+            Transaction.micron_label == item.micron_label,
+            Transaction.is_printed == item.is_printed,
+            Transaction.buyer_name == item.buyer_name,
+            Transaction.zone_code == stock.zone_code,
+            func.date(Transaction.executed_at) == stock.date_received
+        ).order_by(Transaction.executed_at).all()
+        
+        if len(matching_txns) <= 1:
+            continue  # Not merged
+        
+        # Verify totals match
+        txn_pieces = sum(t.quantity_pieces for t in matching_txns)
+        txn_kg = sum(t.quantity_kg for t in matching_txns)
+        
+        pieces_diff = abs(txn_pieces - stock.quantity_pieces)
+        kg_diff = abs(txn_kg - stock.quantity_kg)
+        
+        if pieces_diff > 0.01 or kg_diff > 0.01:
+            print(f"SKIP Stock #{stock.id} (item={stock.item_id}, zone={stock.zone_code}, date={stock.date_received}): "
+                  f"totals don't match (stock: {stock.quantity_pieces}pc/{stock.quantity_kg:.2f}kg, "
+                  f"txns: {txn_pieces}pc/{txn_kg:.2f}kg, diff: {pieces_diff:.2f}pc/{kg_diff:.2f}kg)")
+            continue
+        
+        results.append((stock, matching_txns))
+    
     return results
 
 
-def get_transactions_for_group(item_type, material, width_inches, length_inches, micron_label, is_printed, buyer_name, zone_code, executed_date):
-    """Get all IN transactions for a group ordered by executed_at."""
-    return Transaction.query.filter(
-        Transaction.transaction_type == 'IN',
-        Transaction.item_type == item_type,
-        Transaction.material == material,
-        Transaction.width_inches == width_inches,
-        Transaction.length_inches == length_inches,
-        Transaction.micron_label == micron_label,
-        Transaction.is_printed == is_printed,
-        Transaction.buyer_name == buyer_name,
-        Transaction.zone_code == zone_code,
-        func.date(Transaction.executed_at) == executed_date
-    ).order_by(Transaction.executed_at).all()
-
-
-def get_matching_stock(item_id, zone_code, date_received):
-    """Find the merged stock record for this group."""
-    return Stock.query.filter(
-        Stock.item_id == item_id,
-        Stock.zone_code == zone_code,
-        Stock.date_received == date_received
-    ).first()
-
-
-def print_dry_run_table(groups):
+def print_dry_run_table(results):
     """Print dry-run table showing what will be split."""
     print(f"\n{'OLD_STOCK_ID':<12} {'ITEM_ID':<8} {'ZONE':<8} {'DATE':<12} {'TXNS':<5} {'PCS':<6} {'KG':<8} {'NEW_STOCKS'}")
     print("-" * 100)
-    for g in groups:
-        txns = get_transactions_for_group(
-            g['item_type'], g['material'], g['width_inches'], g['length_inches'],
-            g['micron_label'], g['is_printed'], g['buyer_name'],
-            g['zone_code'], g['date_received']
-        )
-        old_id = g['stock_id']
+    for stock, txns in results:
+        old_id = stock.id
         new_stocks = ', '.join([f"#{t.id}({t.quantity_pieces:.0f}pc,{t.quantity_kg:.2f}kg)" for t in txns])
-        print(f"{old_id:<12} {g['item_id']:<8} {g['zone_code']:<8} {g['date_received']:<12} {g['txn_count']:<5} {g['total_pieces']:<6.0f} {g['total_kg']:<8.2f} {new_stocks}")
+        print(f"{old_id:<12} {stock.item_id:<8} {stock.zone_code:<8} {stock.date_received:<12} "
+              f"{len(txns):<5} {stock.quantity_pieces:<6.0f} {stock.quantity_kg:<8.2f} {new_stocks}")
 
 
 def separate_merged_stock(dry_run=False, verbose=False):
     """Main separation logic."""
-    groups = find_merged_groups()
+    results = find_merged_stocks()
     
-    if not groups:
+    if not results:
         print("No merged stock records found. All stock already separated.")
         return True
 
-    print(f"Found {len(groups)} merged stock group(s) to separate.")
+    print(f"Found {len(results)} merged stock record(s) to separate.")
     
     if dry_run:
-        print_dry_run_table(groups)
+        print_dry_run_table(results)
         print("\n[DRY RUN] No changes made. Run with --apply to execute.")
         return True
 
@@ -164,25 +110,13 @@ def separate_merged_stock(dry_run=False, verbose=False):
     total_new_records = 0
     
     try:
-        for g in groups:
-            txns = get_transactions_for_group(
-                g['item_type'], g['material'], g['width_inches'], g['length_inches'],
-                g['micron_label'], g['is_printed'], g['buyer_name'],
-                g['zone_code'], g['date_received']
-            )
-            stock = get_matching_stock(g['item_id'], g['zone_code'], g['date_received'])
-            
-            if not stock:
-                if verbose:
-                    print(f"  No matching stock for item_id={g['item_id']}, zone={g['zone_code']}, date={g['date_received']} - skipping")
-                continue
-            
+        for stock, txns in results:
             old_stock_id = stock.id
             old_qty_pieces = stock.quantity_pieces
             old_qty_kg = stock.quantity_kg
             
             if verbose:
-                print(f"\nSeparating stock #{old_stock_id} (item={g['item_id']}, zone={g['zone_code']}, date={g['date_received']})")
+                print(f"\nSeparating stock #{old_stock_id} (item={stock.item_id}, zone={stock.zone_code}, date={stock.date_received})")
                 print(f"  Original: {old_qty_pieces}pcs, {old_qty_kg:.2f}kg")
                 print(f"  Transactions: {len(txns)}")
             
@@ -190,11 +124,11 @@ def separate_merged_stock(dry_run=False, verbose=False):
             new_stock_ids = []
             for t in txns:
                 new_stock = Stock(
-                    item_id=g['item_id'],
-                    zone_code=g['zone_code'],
+                    item_id=stock.item_id,
+                    zone_code=stock.zone_code,
                     quantity_pieces=t.quantity_pieces,
                     quantity_kg=t.quantity_kg,
-                    date_received=g['date_received']
+                    date_received=stock.date_received
                 )
                 db.session.add(new_stock)
                 db.session.flush()  # Get new ID
@@ -207,11 +141,10 @@ def separate_merged_stock(dry_run=False, verbose=False):
                 if verbose:
                     print(f"    Created stock #{new_stock.id}: {t.quantity_pieces}pc, {t.quantity_kg:.2f}kg (txn #{t.id})")
             
-            # Delete old merged stock
+            # Delete THE specific old merged stock record
             db.session.delete(stock)
             
-            # Audit log (direct, without current_app.log_audit)
-            from models import AuditLog
+            # Audit log
             audit = AuditLog(
                 table_name='stock',
                 record_id=old_stock_id,
@@ -235,180 +168,87 @@ def separate_merged_stock(dry_run=False, verbose=False):
     except Exception as e:
         db.session.rollback()
         print(f"\nError: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
-def verify_separation():
-    """Verify Stock count == IN Transaction count per item/zone/date."""
-    print("\nVerifying separation...")
+def verify_totals_preserved():
+    """Verify total pieces and kg across all stock hasn't changed."""
+    print("\nVerifying global totals preserved...")
     
-    # Check stock groups (by Stock.item_id, zone_code, date_received)
-    stock_groups = db.session.query(
-        Stock.item_id,
-        Stock.zone_code,
-        Stock.date_received,
-        func.count(Stock.id).label('stock_count'),
-        func.sum(Stock.quantity_pieces).label('total_pieces'),
-    ).group_by(
-        Stock.item_id,
-        Stock.zone_code,
-        Stock.date_received
-    ).having(
-        func.count(Stock.id) > 1
-    ).all()
+    # Total pieces and kg in stock
+    stock_total_pieces = db.session.query(func.sum(Stock.quantity_pieces)).scalar() or 0
+    stock_total_kg = db.session.query(func.sum(Stock.quantity_kg)).scalar() or 0
     
-    # Check transaction groups (by Transaction fields, matching find_merged_groups logic)
-    txn_groups = db.session.query(
-        Transaction.item_type,
-        Transaction.material,
-        Transaction.width_inches,
-        Transaction.length_inches,
-        Transaction.micron_label,
-        Transaction.is_printed,
-        Transaction.buyer_name,
-        Transaction.zone_code,
-        func.date(Transaction.executed_at).label('executed_date'),
-        func.count(Transaction.id).label('txn_count'),
-        func.sum(Transaction.quantity_pieces).label('total_pieces'),
-    ).filter(
+    # Total pieces and kg in IN transactions
+    txn_total_pieces = db.session.query(func.sum(Transaction.quantity_pieces)).filter(
         Transaction.transaction_type == 'IN'
-    ).group_by(
-        Transaction.item_type,
-        Transaction.material,
-        Transaction.width_inches,
-        Transaction.length_inches,
-        Transaction.micron_label,
-        Transaction.is_printed,
-        Transaction.buyer_name,
-        Transaction.zone_code,
-        func.date(Transaction.executed_at)
-    ).having(
-        func.count(Transaction.id) > 1
-    ).all()
-    
-    issues = 0
-    
-    if stock_groups:
-        print(f"  WARNING: {len(stock_groups)} stock group(s) still have multiple records:")
-        for g in stock_groups:
-            print(f"    item={g.item_id}, zone={g.zone_code}, date={g.date_received}: {g.stock_count} records, {g.total_pieces}pcs")
-        issues += len(stock_groups)
-    else:
-        print("  OK: No stock groups with multiple records.")
-    
-    if txn_groups:
-        print(f"  INFO: {len(txn_groups)} transaction group(s) with multiple IN transactions:")
-        for g in txn_groups:
-            print(f"    {g.item_type}|{g.material}|{g.width_inches}|{g.length_inches}|{g.micron_label}|{g.is_printed}|{g.buyer_name}|{g.zone_code}|{g.executed_date}: {g.txn_count} txns, {g.total_pieces}pcs")
-    else:
-        print("  OK: No transaction groups with multiple IN transactions.")
-    
-    # Verify counts match: compare Stock (by item_id) with Transaction (by specs -> item_id)
-    stock_by_group = db.session.query(
-        Stock.item_id,
-        Stock.zone_code,
-        Stock.date_received,
-        func.count(Stock.id).label('stock_count'),
-        func.sum(Stock.quantity_pieces).label('stock_pieces'),
-        func.sum(Stock.quantity_kg).label('stock_kg'),
-    ).group_by(
-        Stock.item_id,
-        Stock.zone_code,
-        Stock.date_received
-    ).all()
-    
-    # Get Transaction groups, then join to Item to get item_id
-    txn_by_group_raw = db.session.query(
-        Transaction.item_type,
-        Transaction.material,
-        Transaction.width_inches,
-        Transaction.length_inches,
-        Transaction.micron_label,
-        Transaction.is_printed,
-        Transaction.buyer_name,
-        Transaction.zone_code,
-        func.date(Transaction.executed_at).label('executed_date'),
-        func.count(Transaction.id).label('txn_count'),
-        func.sum(Transaction.quantity_pieces).label('txn_pieces'),
-        func.sum(Transaction.quantity_kg).label('txn_kg'),
-    ).filter(
+    ).scalar() or 0
+    txn_total_kg = db.session.query(func.sum(Transaction.quantity_kg)).filter(
         Transaction.transaction_type == 'IN'
-    ).group_by(
-        Transaction.item_type,
-        Transaction.material,
-        Transaction.width_inches,
-        Transaction.length_inches,
-        Transaction.micron_label,
-        Transaction.is_printed,
-        Transaction.buyer_name,
-        Transaction.zone_code,
-        func.date(Transaction.executed_at)
-    ).all()
+    ).scalar() or 0
     
-    # Map transaction groups to item_ids
-    txn_by_group = {}
-    for t in txn_by_group_raw:
-        item = Item.query.filter_by(
-            item_type=t.item_type,
-            material=t.material,
-            width_inches=t.width_inches,
-            length_inches=t.length_inches,
-            micron_label=t.micron_label,
-            is_printed=t.is_printed,
-            buyer_name=t.buyer_name
-        ).first()
-        if item:
-            key = (item.id, t.zone_code, t.executed_date)
-            txn_by_group[key] = type('obj', (object,), {
-                'item_id': item.id,
-                'zone_code': t.zone_code,
-                'executed_date': t.executed_date,
-                'txn_count': t.txn_count,
-                'txn_pieces': t.txn_pieces,
-                'txn_kg': t.txn_kg
-            })()
+    pieces_diff = abs(stock_total_pieces - txn_total_pieces)
+    kg_diff = abs(stock_total_kg - txn_total_kg)
     
-    stock_dict = {(s.item_id, s.zone_code, s.date_received): s for s in stock_by_group}
-    txn_dict = {(t.item_id, t.zone_code, t.executed_date): t for t in txn_by_group.values()}
+    print(f"  Stock total: {stock_total_pieces:.2f}pcs, {stock_total_kg:.2f}kg")
+    print(f"  IN Txns total: {txn_total_pieces:.2f}pcs, {txn_total_kg:.2f}kg")
+    print(f"  Difference: {pieces_diff:.2f}pcs, {kg_diff:.2f}kg")
     
-    all_keys = set(stock_dict.keys()) | set(txn_dict.keys())
-    mismatch = 0
+    if pieces_diff <= 0.01 and kg_diff <= 0.01:
+        print("  OK: Global totals preserved!")
+        return True
+    else:
+        print("  WARNING: Global totals changed!")
+        return False
+
+
+def verify_no_merged_stocks():
+    """Verify no stock records have quantity_pieces > 1 with matching IN transactions > 1."""
+    print("\nVerifying no merged stocks remain...")
     
-    for key in all_keys:
-        s = stock_dict.get(key)
-        t = txn_dict.get(key)
+    # Find stocks with qty > 1 that still have >1 matching IN transaction
+    stocks = Stock.query.filter(Stock.quantity_pieces > 1).all()
+    merged_remaining = 0
+    
+    for stock in stocks:
+        item = db.session.get(Item, stock.item_id)
+        if not item:
+            continue
         
-        if s and t:
-            if s.stock_count != t.txn_count:
-                print(f"  MISMATCH {key}: stock_count={s.stock_count} vs txn_count={t.txn_count}")
-                mismatch += 1
-            if abs(s.stock_pieces - t.txn_pieces) > 0.01:
-                print(f"  MISMATCH {key}: stock_pieces={s.stock_pieces} vs txn_pieces={t.txn_pieces}")
-                mismatch += 1
-            if abs(s.stock_kg - t.txn_kg) > 0.01:
-                print(f"  MISMATCH {key}: stock_kg={s.stock_kg:.2f} vs txn_kg={t.txn_kg:.2f}")
-                mismatch += 1
-        elif s and not t:
-            print(f"  ORPHAN STOCK {key}: {s.stock_count} records but no IN transactions")
-            mismatch += 1
-        elif t and not s:
-            print(f"  MISSING STOCK {key}: {t.txn_count} IN transactions but no stock records")
-            mismatch += 1
+        matching_txns = Transaction.query.filter(
+            Transaction.transaction_type == 'IN',
+            Transaction.item_type == item.item_type,
+            Transaction.material == item.material,
+            Transaction.width_inches == item.width_inches,
+            Transaction.length_inches == item.length_inches,
+            Transaction.micron_label == item.micron_label,
+            Transaction.is_printed == item.is_printed,
+            Transaction.buyer_name == item.buyer_name,
+            Transaction.zone_code == stock.zone_code,
+            func.date(Transaction.executed_at) == stock.date_received
+        ).count()
+        
+        if matching_txns > 1:
+            print(f"  STILL MERGED: Stock #{stock.id} (item={stock.item_id}, zone={stock.zone_code}, date={stock.date_received}): {matching_txns} IN txns, {stock.quantity_pieces}pcs")
+            merged_remaining += 1
     
-    if mismatch == 0:
-        print("\n  VERIFICATION PASSED: All stock counts match transaction counts.")
+    if merged_remaining == 0:
+        print("  OK: No merged stocks remain!")
+        return True
     else:
-        print(f"\n  VERIFICATION FAILED: {mismatch} mismatch(es) found.")
-    
-    return mismatch == 0
+        print(f"  WARNING: {merged_remaining} merged stock(s) remain!")
+        return False
 
 
 def main():
     parser = argparse.ArgumentParser(description='Separate merged stock records using transaction-based IN records')
     parser.add_argument('--dry-run', action='store_true', help='Preview changes without applying')
     parser.add_argument('--apply', action='store_true', help='Apply separation')
-    parser.add_argument('--verify', action='store_true', help='Verify separation results')
+    parser.add_argument('--verify', action='store_true', help='Verify separation results (totals + no merged)')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
+    parser.add_argument('--db-path', type=str, help='Path to SQLite database file (default: instance/factory_stock.db relative to script)')
     
     args = parser.parse_args()
     
@@ -416,15 +256,28 @@ def main():
         parser.print_help()
         return 1
     
+    # Determine database path
+    if args.db_path:
+        db_path = args.db_path
+    else:
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_path = os.path.join(BASE_DIR, 'instance', 'factory_stock.db')
+    
+    print(f"Using database: {db_path}")
+    
+    # Create app with the specified database
+    app = create_app(db_path)
+    
     with app.app_context():
         if args.verify:
-            success = verify_separation()
-            return 0 if success else 1
+            ok1 = verify_totals_preserved()
+            ok2 = verify_no_merged_stocks()
+            return 0 if (ok1 and ok2) else 1
         
         if args.dry_run:
-            groups = find_merged_groups()
-            if groups:
-                print_dry_run_table(groups)
+            results = find_merged_stocks()
+            if results:
+                print_dry_run_table(results)
             else:
                 print("No merged stock records found.")
             return 0
