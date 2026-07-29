@@ -15,7 +15,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False)  # 'store_keeper', 'supervisor', 'owner'
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
     
     def set_password(self, password):
         # Strong password requirements: min 8 chars, upper, lower, digit, special
@@ -30,11 +30,39 @@ class User(UserMixin, db.Model):
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
             return False
         
+        # Check password history (prevent reuse of last 5 passwords)
+        from models import PasswordHistory
+        if self.id:  # Only check history if user already exists
+            recent_hashes = db.session.query(PasswordHistory.password_hash).filter(
+                PasswordHistory.user_id == self.id
+            ).order_by(PasswordHistory.created_at.desc()).limit(5).all()
+            
+            for (old_hash,) in recent_hashes:
+                if check_password_hash(old_hash, password):
+                    return False
+        
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+        
+        # Store in history if user already has ID (existing user)
+        if self.id:
+            history = PasswordHistory(user_id=self.id, password_hash=self.password_hash)
+            db.session.add(history)
+        # For new users, password history will be added after commit via app logic
+        
         return True
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+class PasswordHistory(db.Model):
+    __tablename__ = 'password_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    
+    user = db.relationship('User', backref='password_history')
 
 class Zone(db.Model):
     __tablename__ = 'zones'
@@ -61,6 +89,11 @@ class Item(db.Model):
     brand_name = db.Column(db.String(100), nullable=True)
     handle_type = db.Column(db.String(20), nullable=True)  # 'D-cut', 'Loop', 'None'
     
+    # Roll-specific fields
+    gusset_type = db.Column(db.String(20), nullable=True)  # '1-side', '2-side', None
+    gusset_length_inches = db.Column(db.Float, nullable=True)  # Gusset length for rolls
+    color = db.Column(db.String(50), nullable=True)  # Roll color (optional)
+    
     @property
     def display_name(self):
         name = f"{self.material} {self.item_type.capitalize()}"
@@ -70,6 +103,11 @@ class Item(db.Model):
             name += f" {self.length_inches}\"x{self.width_inches}\""
         
         name += f" {self.micron_label}µ"
+        if self.item_type == 'roll':
+            if self.gusset_type:
+                name += f" Gusset:{self.gusset_type}"
+            if self.color:
+                name += f" {self.color}"
         if self.is_printed:
             name += " Printed"
             if self.buyer_name:
@@ -92,7 +130,14 @@ class Item(db.Model):
                 parts.append(f"Brand: {self.brand_name}")
             return " | ".join(parts)
         elif self.item_type == 'roll':
-            return f"{self.material} Roll {self.width_inches}\" x {self.micron_label}µ"
+            parts = [f"{self.material} Roll {self.width_inches}\" x {self.micron_label}µ"]
+            if self.gusset_type:
+                parts.append(f"Gusset: {self.gusset_type}")
+            if self.gusset_length_inches:
+                parts.append(f"Gusset Length: {self.gusset_length_inches}\"")
+            if self.color:
+                parts.append(f"Color: {self.color}")
+            return " | ".join(parts)
         else:
             return f"{self.material} Sheet {self.width_inches}\" x {self.micron_label}µ"
 
@@ -132,6 +177,12 @@ class Transaction(db.Model):
     flap_inches = db.Column(db.Float, nullable=True)
     brand_name = db.Column(db.String(100), nullable=True)
     handle_type = db.Column(db.String(20), nullable=True)
+    
+    # Roll-specific fields
+    gusset_type = db.Column(db.String(20), nullable=True)  # '1-side', '2-side'
+    gusset_length_inches = db.Column(db.Float, nullable=True)
+    color = db.Column(db.String(50), nullable=True)
+    
     request_id = db.Column(db.Integer, db.ForeignKey('requests.id'), nullable=True)
     original_transaction_id = db.Column(db.Integer, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
@@ -171,3 +222,17 @@ class AuditLog(db.Model):
     changed_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     user = db.relationship('User', backref='audit_logs')
+
+class SecurityEvent(db.Model):
+    __tablename__ = 'security_events'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(50), nullable=False)  # LOGIN_FAILED, LOGIN_SUCCESS, PERMISSION_DENIED, SUSPICIOUS_ACTIVITY
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(500), nullable=True)
+    details = db.Column(db.Text, nullable=True)
+    severity = db.Column(db.String(20), default='WARNING')  # INFO, WARNING, CRITICAL
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    
+    user = db.relationship('User', backref='security_events')

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app
 from flask_login import login_user, logout_user, login_required, current_user
-from models import db, User
+from models import db, User, SecurityEvent
 from datetime import datetime
 from urllib.parse import urlparse, urljoin
 
@@ -12,6 +12,14 @@ def is_safe_url(target):
     ref_url = urlparse(request.host_url)
     test_url = urlparse(urljoin(request.host_url, target))
     return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc
+
+def log_security_event(event_type, details=None, severity='WARNING'):
+    """Log security event"""
+    try:
+        if hasattr(current_app, 'log_security'):
+            current_app.log_security(event_type, details, severity)
+    except Exception:
+        pass
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -36,6 +44,7 @@ def login():
         
         if user and user.check_password(password):
             if not user.is_active:
+                log_security_event('LOGIN_FAILED', f'Inactive account: {username}', 'WARNING')
                 flash('Account is deactivated. Contact administrator.', 'error')
                 return render_template('login.html')
             
@@ -45,6 +54,9 @@ def login():
             # Login the user
             login_user(user, remember=remember)
             session.permanent = True
+            
+            # Log successful login
+            log_security_event('LOGIN_SUCCESS', f'User: {username}', 'INFO')
             
             # Get the next URL from session (set by before_request)
             next_url = session.pop('next_url', None)
@@ -59,6 +71,7 @@ def login():
             # Record failed attempt for rate limiting
             from main import record_login_attempt
             record_login_attempt(client_ip)
+            log_security_event('LOGIN_FAILED', f'Failed login for: {username} from IP: {client_ip}', 'WARNING')
             flash('Invalid username or password', 'error')
     
     return render_template('login.html')
@@ -66,6 +79,7 @@ def login():
 @auth_bp.route('/logout')
 @login_required
 def logout():
+    log_security_event('LOGOUT', f'User: {current_user.username}', 'INFO')
     logout_user()
     session.clear()  # Clear all session data
     flash('You have been logged out', 'info')

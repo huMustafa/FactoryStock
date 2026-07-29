@@ -212,7 +212,10 @@ def fulfill_request(request_id):
             gusset_inches=item.gusset_inches,
             flap_inches=item.flap_inches,
             brand_name=item.brand_name,
-            handle_type=item.handle_type
+            handle_type=item.handle_type,
+            gusset_type=item.gusset_type,
+            gusset_length_inches=item.gusset_length_inches,
+            color=item.color
         )
         db.session.add(transaction)
     

@@ -145,11 +145,16 @@ def stock_in():
         brand_name = sanitize_input(request.form.get('brand_name', ''), 100)
         handle_type = sanitize_input(request.form.get('handle_type', ''), 20)
         
-        # Unit conversion for bags
+        # Roll-specific fields
+        gusset_type = sanitize_input(request.form.get('gusset_type', ''), 20)
+        gusset_length_inches = validate_float(request.form.get('gusset_length'), 0, 10000)
+        color = sanitize_input(request.form.get('color', ''), 50)
+        
+        # Unit conversion for bags only
         dimension_unit = request.form.get('dimension_unit', 'inch')
         bag_extra_unit = request.form.get('bag_extra_unit', 'inch')
         
-        # Convert cm to inches (1 inch = 2.54 cm)
+        # Convert cm to inches (1 inch = 2.54 cm) for bags
         if item_type == 'bag':
             if dimension_unit == 'cm':
                 width = width / 2.54 if width else 0
@@ -220,7 +225,10 @@ def stock_in():
                 gusset_inches=gusset if item_type == 'bag' else None,
                 flap_inches=flap if item_type == 'bag' else None,
                 brand_name=brand_name if item_type == 'bag' else None,
-                handle_type=handle_type if item_type == 'bag' else None
+                handle_type=handle_type if item_type == 'bag' else None,
+gusset_type=gusset_type if item_type == 'roll' else None,
+            gusset_length_inches=gusset_length_inches if item_type == 'roll' else None,
+            color=color if item_type == 'roll' else None
             )
             db.session.add(item)
             db.session.flush()  # Get item ID
@@ -253,7 +261,10 @@ def stock_in():
             gusset_inches=gusset if item_type == 'bag' else None,
             flap_inches=flap if item_type == 'bag' else None,
             brand_name=brand_name if item_type == 'bag' else None,
-            handle_type=handle_type if item_type == 'bag' else None
+            handle_type=handle_type if item_type == 'bag' else None,
+            gusset_type=gusset_type if item_type == 'roll' else None,
+            gusset_length_inches=gusset_length_inches if item_type == 'roll' else None,
+            color=color if item_type == 'roll' else None
         )
         db.session.add(transaction)
         
@@ -497,7 +508,10 @@ def stock_out(item_id):
                 gusset_inches=item.gusset_inches,
                 flap_inches=item.flap_inches,
                 brand_name=item.brand_name,
-                handle_type=item.handle_type
+                handle_type=item.handle_type,
+                gusset_type=item.gusset_type,
+                gusset_length_inches=item.gusset_length_inches,
+                color=item.color
             )
             db.session.add(transaction)
         

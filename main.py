@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import time
 from collections import defaultdict
+import redis
 from models import db, User, AuditLog
 from auth import auth_bp
 from stock import stock_bp
@@ -14,22 +15,57 @@ from functools import wraps
 
 load_dotenv()
 
-# In-memory rate limiter for login attempts
+# Redis client for rate limiting (with graceful fallback)
+redis_client = None
+try:
+    redis_client = redis.Redis(
+        host=os.getenv('REDIS_HOST', 'localhost'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        db=int(os.getenv('REDIS_DB', 0)),
+        decode_responses=True,
+        socket_connect_timeout=2,
+        socket_timeout=2
+    )
+    redis_client.ping()
+except Exception:
+    redis_client = None
+
+# In-memory fallback for rate limiting
 login_attempts = defaultdict(list)
 
 def rate_limit_login(ip, max_attempts=5, window_seconds=300):
-    """Rate limit login attempts per IP"""
+    """Rate limit login attempts per IP using Redis with in-memory fallback"""
     now = time.time()
-    # Clean old attempts
-    login_attempts[ip] = [t for t in login_attempts[ip] if now - t < window_seconds]
+    window_start = now - window_seconds
+    key = f"login_attempts:{ip}"
     
+    if redis_client:
+        try:
+            # Remove expired entries
+            redis_client.zremrangebyscore(key, 0, window_start)
+            # Count current attempts
+            current_attempts = redis_client.zcard(key)
+            
+            if current_attempts >= max_attempts:
+                return False
+            
+            # Add current attempt
+            redis_client.zadd(key, {str(now): now})
+            redis_client.expire(key, window_seconds + 60)
+            return True
+        except Exception:
+            pass  # Fall back to in-memory
+    
+    # In-memory fallback
+    login_attempts[ip] = [t for t in login_attempts[ip] if t > window_start]
     if len(login_attempts[ip]) >= max_attempts:
         return False
+    login_attempts[ip].append(now)
     return True
 
 def record_login_attempt(ip):
-    """Record a login attempt"""
-    login_attempts[ip].append(time.time())
+    """Record a login attempt - handled by rate_limit_login"""
+    pass  # rate_limit_login already records attempts
 
 def create_app():
     app = Flask(__name__)
@@ -114,12 +150,12 @@ def create_app():
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         
-        # Content Security Policy
+        # Content Security Policy - allow Alpine.js inline handlers
         response.headers['Content-Security-Policy'] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; "
-            "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
-            "font-src 'self' https://cdnjs.cloudflare.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
             "img-src 'self' data:; "
             "connect-src 'self'"
         )
@@ -144,7 +180,35 @@ def create_app():
             except Exception:
                 db.session.rollback()
     
+    # Security event logging
+    def log_security_event(event_type, details=None, severity='WARNING'):
+        """Log security-related events"""
+        try:
+            from models import SecurityEvent
+            if not hasattr(db.Model, '_decl_class_registry') or 'SecurityEvent' not in db.Model._decl_class_registry:
+                # SecurityEvent model may not exist yet, skip
+                pass
+            else:
+                user_id = current_user.id if current_user.is_authenticated else None
+                ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
+                ua = request.headers.get('User-Agent', '')[:500]
+                
+                event = SecurityEvent(
+                    event_type=event_type,
+                    user_id=user_id,
+                    ip_address=ip,
+                    user_agent=ua,
+                    details=details,
+                    severity=severity
+                )
+                db.session.add(event)
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning(f"Security event logging failed: {e}")
+    
     app.log_audit = log_audit
+    app.log_security = log_security_event
     
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/auth')
