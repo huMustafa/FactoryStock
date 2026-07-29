@@ -12,6 +12,7 @@ from stock import stock_bp
 from requests import requests_bp
 from settings import settings_bp
 from functools import wraps
+from flask_migrate import Migrate
 
 load_dotenv()
 
@@ -80,6 +81,7 @@ def create_app():
     
     # Initialize extensions
     db.init_app(app)
+    migrate = Migrate(app, db)
     csrf = CSRFProtect()
     csrf.init_app(app)
     

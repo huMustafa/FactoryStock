@@ -6,3 +6,4 @@ python-dotenv==1.0.0
 Werkzeug==3.0.1
 Flask-WTF
 redis==5.0.1
+Flask-Migrate==4.0.5
