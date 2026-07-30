@@ -24,7 +24,7 @@
                 </div>
             </div>
             
-            <nav class="p-4 space-y-2">
+<nav class="p-4 space-y-2">
                 {% if current_user.role == 'store_keeper' %}
                 <a href="{{ url_for('stock.stock_directory') }}" 
                    class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
@@ -41,15 +41,36 @@
                     <i class="fas fa-clipboard-list w-5"></i>
                     <span>Requests</span>
                 </a>
+                <a href="{{ url_for('stock.usage_report') }}" 
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
+                    <i class="fas fa-chart-bar w-5"></i>
+                    <span>Usage Report</span>
+                </a>
                 <a href="{{ url_for('stock.audit_log') }}" 
                    class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
                     <i class="fas fa-history w-5"></i>
                     <span>Audit Log</span>
                 </a>
-                <a href="{{ url_for('stock.receiver_usage') }}" 
+                {% elif current_user.role == 'owner' %}
+                <a href="{{ url_for('stock.stock_directory') }}" 
                    class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
-                    <i class="fas fa-user-tag w-5"></i>
-                    <span>Receiver Usage</span>
+                    <i class="fas fa-cube w-5"></i>
+                    <span>Stock Directory</span>
+                </a>
+                <a href="{{ url_for('stock.usage_report') }}" 
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
+                    <i class="fas fa-chart-bar w-5"></i>
+                    <span>Usage Report</span>
+                </a>
+                <a href="{{ url_for('stock.audit_log') }}" 
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
+                    <i class="fas fa-history w-5"></i>
+                    <span>Audit Log</span>
+                </a>
+                <a href="{{ url_for('settings.settings') }}" 
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
+                    <i class="fas fa-cog w-5"></i>
+                    <span>Settings</span>
                 </a>
                 {% elif current_user.role == 'supervisor' %}
                 <a href="{{ url_for('stock.stock_directory') }}" 
@@ -67,34 +88,8 @@
                     <i class="fas fa-history w-5"></i>
                     <span>Audit Log</span>
                 </a>
-                {% else %}
-                <a href="{{ url_for('stock.stock_directory') }}" 
-                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
-                    <i class="fas fa-cube w-5"></i>
-                    <span>Stock Directory</span>
-                </a>
-                <a href="{{ url_for('stock.supervisor_usage') }}" 
-                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
-                    <i class="fas fa-chart-bar w-5"></i>
-                    <span>Supervisor Usage</span>
-                </a>
-                <a href="{{ url_for('stock.receiver_usage') }}" 
-                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
-                    <i class="fas fa-user-tag w-5"></i>
-                    <span>Receiver Usage</span>
-                </a>
-                <a href="{{ url_for('stock.audit_log') }}" 
-                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
-                    <i class="fas fa-history w-5"></i>
-                    <span>Audit Log</span>
-                </a>
-                <a href="{{ url_for('settings.settings') }}" 
-                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
-                    <i class="fas fa-cog w-5"></i>
-                    <span>Settings</span>
-                </a>
-                {% endif %}
-            </nav>
+{% endif %}
+                </nav>
         </aside>
         
         <!-- Main Content -->

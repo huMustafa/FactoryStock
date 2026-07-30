@@ -199,14 +199,18 @@ class Request(db.Model):
     requested_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
     quantity_pieces_requested = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(20), default='pending')  # 'pending', 'completed'
+    status = db.Column(db.String(20), default='pending')  # 'pending', 'completed', 'cancelled'
     fulfilled_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     fulfilled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancel_reason = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     requester = db.relationship('User', foreign_keys=[requested_by], backref='raised_requests')
     fulfiller = db.relationship('User', foreign_keys=[fulfilled_by], backref='fulfilled_requests')
+    canceller = db.relationship('User', foreign_keys=[cancelled_by], backref='cancelled_requests')
     item = db.relationship('Item', backref='requests')
 
 class AuditLog(db.Model):

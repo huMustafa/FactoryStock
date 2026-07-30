@@ -4,22 +4,32 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div>
-        <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <i class="fas fa-clipboard-list text-blue-600"></i>
-            {% if current_user.role == 'supervisor' %}
-            My Requests
-            {% elif current_user.role == 'store_keeper' %}
-            Pending Requests
-            {% else %}
-            All Requests
-            {% endif %}
-        </h1>
-        <p class="text-gray-600 mt-1">
-            {% if current_user.role == 'supervisor' %}Track your stock requests
-            {% elif current_user.role == 'store_keeper' %}Fulfill supervisor requests
-            {% else %}View all stock requests (read-only){% endif %}
-        </p>
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <i class="fas fa-clipboard-list text-blue-600"></i>
+                {% if current_user.role == 'supervisor' %}
+                My Requests
+                {% elif current_user.role == 'store_keeper' %}
+                Pending Requests
+                {% else %}
+                All Requests
+                {% endif %}
+            </h1>
+            <p class="text-gray-600 mt-1">
+                {% if current_user.role == 'supervisor' %}Track your stock requests
+                {% elif current_user.role == 'store_keeper' %}Fulfill supervisor requests
+                {% else %}View all stock requests (read-only){% endif %}
+            </p>
+        </div>
+        {% if current_user.role == 'store_keeper' %}
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p class="text-sm text-yellow-800">
+                <i class="fas fa-clock mr-2"></i>
+                <span class="font-semibold">{{ pending_count }}</span> pending request(s) awaiting action
+            </p>
+        </div>
+        {% endif %}
     </div>
     
     <!-- Requests Table -->
@@ -50,23 +60,39 @@
                         <td class="px-6 py-4">
                             {% if req.status == 'pending' %}
                             <span class="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">Pending</span>
-                            {% else %}
+                            {% elif req.status == 'completed' %}
                             <span class="px-3 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">Completed</span>
+                            {% else %}
+                            <span class="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700">Cancelled</span>
                             {% endif %}
                         </td>
                         <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{{ req.notes or '-' }}</td>
                         <td class="px-6 py-4 text-sm text-gray-500">
                             {{ req.created_at|format_date('%d/%m/%Y %H:%M') }}
                         </td>
-                        {% if current_user.role == 'store_keeper' and req.status == 'pending' %}
+                        {% if current_user.role == 'store_keeper' %}
                         <td class="px-6 py-4">
-                            <a href="{{ url_for('requests.fulfill_request_view', request_id=req.id) }}"
-                               class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors inline-block">
-                                Fulfill
-                            </a>
+                            {% if req.status == 'pending' %}
+                            <div class="flex gap-2">
+                                <a href="{{ url_for('requests.fulfill_request_view', request_id=req.id) }}"
+                                   class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors inline-block">
+                                    Fulfill
+                                </a>
+                                <button onclick="openCancelModal({{ req.id }}, '{{ req.item.display_name }}')"
+                                        class="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors">
+                                    Cancel
+                                </button>
+                            </div>
+                            {% elif req.status == 'completed' %}
+                            <span class="text-sm text-gray-400">Completed</span>
+                            {% else %}
+                            <span class="text-sm text-gray-400">Cancelled</span>
+                            {% endif %}
                         </td>
                         {% elif current_user.role == 'store_keeper' %}
-                        <td class="px-6 py-4 text-sm text-gray-400">Completed</td>
+                        <td class="px-6 py-4 text-sm text-gray-400">
+                            {% if req.status == 'completed' %}Completed{% else %}Cancelled{% endif %}
+                        </td>
                         {% else %}
                         <td class="px-6 py-4 text-sm text-gray-400">-</td>
                         {% endif %}
@@ -85,4 +111,49 @@
         </div>
     </div>
 </div>
+
+<!-- Cancel Request Modal -->
+{% if current_user.role == 'store_keeper' %}
+<div id="cancelModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <h3 class="text-lg font-bold mb-4 text-red-600">Cancel Request</h3>
+        <form id="cancelForm" method="POST" action="">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="request_id" id="cancelRequestId">
+            <p class="text-sm text-gray-600 mb-4" id="cancelItemName"></p>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Reason for Cancellation (Required)</label>
+                <textarea name="cancel_reason" rows="4" required
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                          placeholder="Enter reason for cancellation..."></textarea>
+            </div>
+            
+            <div class="flex gap-3 mt-6">
+                <button type="button" onclick="closeCancelModal()"
+                        class="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Keep Request
+                </button>
+                <button type="submit"
+                        class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                    Confirm Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+{% endif %}
+
+<script>
+    function openCancelModal(requestId, itemName) {
+        document.getElementById('cancelRequestId').value = requestId;
+        document.getElementById('cancelItemName').textContent = 'Cancelling request for: ' + itemName;
+        document.getElementById('cancelForm').action = "{{ url_for('requests.cancel_request', request_id=0) }}".replace('0', requestId);
+        document.getElementById('cancelModal').classList.remove('hidden');
+    }
+    
+    function closeCancelModal() {
+        document.getElementById('cancelModal').classList.add('hidden');
+        document.getElementById('cancelForm').querySelector('textarea').value = '';
+    }
+</script>
 {% endblock %}

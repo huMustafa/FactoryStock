@@ -152,16 +152,12 @@ def stock_in():
         
         # Unit conversion for bags only
         dimension_unit = request.form.get('dimension_unit', 'inch')
-        bag_extra_unit = request.form.get('bag_extra_unit', 'inch')
         
         # Convert cm to inches (1 inch = 2.54 cm) for bags
         if item_type == 'bag':
             if dimension_unit == 'cm':
                 width = width / 2.54 if width else 0
                 length = length / 2.54 if length else 0
-            if bag_extra_unit == 'cm':
-                gusset = gusset / 2.54 if gusset else 0
-                flap = flap / 2.54 if flap else 0
         
         # Validate required fields
         if not all([material, item_type, micron_label, weight is not None, quantity is not None, zone_code]):
@@ -300,72 +296,10 @@ def audit_log():
                          types=types,
                          selected_type=trans_type)
 
-@stock_bp.route('/supervisor-usage')
+# Merged Usage Report
+@stock_bp.route('/usage-report')
 @login_required
-def supervisor_usage():
-    if current_user.role != 'owner':
-        flash('Unauthorized access', 'error')
-        return redirect(url_for('stock.stock_directory'))
-    
-    from datetime import timedelta
-    
-    # Get week parameter (default to current week)
-    week_offset = request.args.get('week', 0, type=int)
-    today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
-    end_of_week = start_of_week + timedelta(days=6)
-    
-    # Query OUT transactions by supervisors for the selected week
-    usage_data = db.session.query(
-        User.username,
-        User.id,
-        func.sum(Transaction.quantity_kg).label('total_kg'),
-        func.count(Transaction.id).label('transaction_count')
-    ).join(Transaction, Transaction.user_id == User.id)\
-    .filter(
-        User.role == 'supervisor',
-        Transaction.transaction_type == 'OUT',
-        func.date(Transaction.executed_at) >= start_of_week,
-        func.date(Transaction.executed_at) <= end_of_week
-    ).group_by(User.id, User.username).all()
-    
-    # Also get all supervisors for those with 0 usage
-    all_supervisors = User.query.filter_by(role='supervisor', is_active=True).all()
-    supervisor_dict = {s.id: s.username for s in all_supervisors}
-    
-    # Build complete list including supervisors with 0 usage
-    result = []
-    for sup_id, username in supervisor_dict.items():
-        match = next((u for u in usage_data if u.id == sup_id), None)
-        if match:
-            result.append({
-                'username': username,
-                'total_kg': float(match.total_kg),
-                'transaction_count': match.transaction_count
-            })
-        else:
-            result.append({
-                'username': username,
-                'total_kg': 0.0,
-                'transaction_count': 0
-            })
-    
-    # Sort by total kg descending
-    result.sort(key=lambda x: x['total_kg'], reverse=True)
-    
-    # Calculate grand total
-    grand_total_kg = sum(r['total_kg'] for r in result)
-    
-    return render_template('supervisor_usage.html',
-                         usage_data=result,
-                         grand_total_kg=grand_total_kg,
-                         week_offset=week_offset,
-                         start_of_week=start_of_week,
-                         end_of_week=end_of_week)
-
-@stock_bp.route('/receiver-usage')
-@login_required
-def receiver_usage():
+def usage_report():
     if current_user.role not in ['owner', 'store_keeper']:
         flash('Unauthorized access', 'error')
         return redirect(url_for('stock.stock_directory'))
@@ -389,51 +323,77 @@ def receiver_usage():
         func.date(Transaction.executed_at) == selected_date
     ).all()
     
-    # Extract receiver names from notes
+    # --- Supervisor Usage ---
+    supervisor_data = {}
+    for tx in transactions:
+        user = User.query.get(tx.user_id)
+        if user and user.role == 'supervisor':
+            username = user.username
+            if username not in supervisor_data:
+                supervisor_data[username] = {'total_kg': 0.0, 'transaction_count': 0}
+            supervisor_data[username]['total_kg'] += float(tx.quantity_kg or 0)
+            supervisor_data[username]['transaction_count'] += 1
+    
+    # Get all supervisors for those with 0 usage
+    all_supervisors = User.query.filter_by(role='supervisor', is_active=True).all()
+    supervisor_dict = {s.username: s for s in all_supervisors}
+    
+    # Build supervisor result list
+    supervisor_result = []
+    for username in sorted(supervisor_dict.keys()):
+        data = supervisor_data.get(username, {'total_kg': 0.0, 'transaction_count': 0})
+        supervisor_result.append({
+            'username': username,
+            'total_kg': data['total_kg'],
+            'transaction_count': data['transaction_count']
+        })
+    
+    # --- Receiver Usage ---
     receiver_data = {}
     for tx in transactions:
         receiver = None
         if tx.notes:
-            # Try to extract "Given to: name" or "Handed to name"
             if 'Given to:' in tx.notes:
                 receiver = tx.notes.split('Given to:')[-1].strip()
             elif 'Handed to' in tx.notes:
                 receiver = tx.notes.split('Handed to')[-1].strip()
         
         if receiver:
-            # Normalize for grouping (case-insensitive)
-            normalized = receiver.strip().title()  # "ahmed" -> "Ahmed"
-            
+            normalized = receiver.strip().title()
             if normalized not in receiver_data:
-                receiver_data[normalized] = {
-                    'display_name': receiver,  # preserve original casing for display
-                    'total_kg': 0.0,
-                    'transaction_count': 0
-                }
+                receiver_data[normalized] = {'display_name': receiver, 'total_kg': 0.0, 'transaction_count': 0}
             receiver_data[normalized]['total_kg'] += float(tx.quantity_kg or 0)
             receiver_data[normalized]['transaction_count'] += 1
     
-    # Build result list
-    result = []
+    # Build receiver result list
+    receiver_result = []
     for normalized, data in receiver_data.items():
-        result.append({
-            'receiver': data['display_name'],  # show original casing
+        receiver_result.append({
+            'receiver': data['display_name'],
             'total_kg': data['total_kg'],
             'transaction_count': data['transaction_count']
         })
     
-    # Sort by total kg descending
-    result.sort(key=lambda x: x['total_kg'], reverse=True)
+    # Sort both by total kg descending
+    supervisor_result.sort(key=lambda x: x['total_kg'], reverse=True)
+    receiver_result.sort(key=lambda x: x['total_kg'], reverse=True)
     
-    # Calculate grand total
-    grand_total_kg = sum(r['total_kg'] for r in result)
+    # Combined totals
+    supervisor_total_kg = sum(r['total_kg'] for r in supervisor_result)
+    receiver_total_kg = sum(r['total_kg'] for r in receiver_result)
+    combined_total_kg = supervisor_total_kg + receiver_total_kg
     
-    return render_template('receiver_usage.html',
-                         usage_data=result,
-                         grand_total_kg=grand_total_kg,
+    return render_template('usage_report.html',
                          selected_date=selected_date,
                          prev_date=selected_date - timedelta(days=1),
-                         next_date=selected_date + timedelta(days=1))
+                         next_date=selected_date + timedelta(days=1),
+                         supervisor_usage=supervisor_result,
+                         receiver_usage=receiver_result,
+                         supervisor_total_kg=supervisor_total_kg,
+                         receiver_total_kg=receiver_total_kg,
+                         combined_total_kg=combined_total_kg,
+                         supervisor_tx_count=sum(r['transaction_count'] for r in supervisor_result),
+                         receiver_tx_count=sum(r['transaction_count'] for r in receiver_result))
 
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
 @login_required

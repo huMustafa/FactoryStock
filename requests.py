@@ -40,7 +40,10 @@ def requests_list():
         # Owners see all requests (read-only)
         requests = Request.query.order_by(Request.created_at.desc()).all()
     
-    return render_template('requests.html', requests=requests)
+    # Count pending requests
+    pending_count = Request.query.filter_by(status='pending').count()
+    
+    return render_template('requests.html', requests=requests, pending_count=pending_count)
 
 @requests_bp.route('/new', methods=['POST'])
 @login_required
@@ -231,4 +234,39 @@ def fulfill_request(request_id):
                          {'status': 'pending'}, {'status': 'completed', 'fulfilled_by': current_user.id, 'receiver': receiver_name})
     
     flash('Request fulfilled successfully', 'success')
+    return redirect(url_for('requests.requests_list'))
+
+@requests_bp.route('/<int:request_id>/cancel', methods=['POST'])
+@login_required
+def cancel_request(request_id):
+    """Cancel a request (store keeper only)"""
+    if current_user.role != 'store_keeper':
+        flash('Only store keepers can cancel requests', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    req = Request.query.get_or_404(request_id)
+    
+    if req.status != 'pending':
+        flash('Can only cancel pending requests', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    # Get cancellation reason
+    reason = sanitize_input(request.form.get('cancel_reason', ''), 500)
+    if not reason:
+        flash('Cancellation reason is required', 'error')
+        return redirect(url_for('requests.requests_list'))
+    
+    # Update request status
+    req.status = 'cancelled'
+    req.cancelled_by = current_user.id
+    req.cancelled_at = datetime.utcnow()
+    req.cancel_reason = reason
+    
+    db.session.commit()
+    
+    # Audit log
+    current_app.log_audit('requests', req.id, 'UPDATE', 
+                         {'status': 'pending'}, {'status': 'cancelled', 'cancelled_by': current_user.id, 'reason': reason})
+    
+    flash('Request cancelled successfully', 'success')
     return redirect(url_for('requests.requests_list'))
