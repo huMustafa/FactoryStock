@@ -218,6 +218,15 @@ def create_app():
     app.register_blueprint(requests_bp, url_prefix='/requests')
     app.register_blueprint(settings_bp, url_prefix='/settings')
     
+    # Context processor to inject pending requests count
+    @app.context_processor
+    def inject_pending_requests():
+        if current_user.is_authenticated and current_user.role in ['owner', 'store_keeper']:
+            from models import Request
+            pending_count = Request.query.filter_by(status='pending').count()
+            return {'pending_requests_count': pending_count}
+        return {'pending_requests_count': 0}
+    
     # Main dashboard route
     @app.route('/')
     def dashboard():

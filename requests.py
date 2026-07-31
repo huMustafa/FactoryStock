@@ -210,7 +210,7 @@ def fulfill_request(request_id):
             quantity_pieces=deduct_amount,
             quantity_kg=deduct_kg,
             request_id=req.id,
-            user_id=current_user.id,
+            user_id=req.requested_by,  # Use supervisor's ID for usage tracking
             notes=f"Stock OUT - Request #{req.id} by {req.requester.username} - Given to: {receiver_name}",
             gusset_inches=item.gusset_inches,
             flap_inches=item.flap_inches,

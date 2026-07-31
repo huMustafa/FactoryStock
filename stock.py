@@ -304,8 +304,21 @@ def usage_report():
         flash('Unauthorized access', 'error')
         return redirect(url_for('stock.stock_directory'))
     
-    from datetime import timedelta
+    from datetime import timedelta, time
     import re
+    
+    def normalize_name(name: str) -> str:
+        """Strip, lower-case, remove leading honorifics (mr., mrs., ms., dr., eng.), collapse multiple spaces."""
+        if not name:
+            return ''
+        name = name.strip().lower()
+        # Remove common honorifics
+        for honorific in ['mr.', 'mrs.', 'ms.', 'dr.', 'eng.']:
+            if name.startswith(honorific):
+                name = name[len(honorific):].strip()
+        # Collapse multiple spaces
+        name = re.sub(r'\s+', ' ', name)
+        return name
     
     # Get date parameter (default to today)
     date_str = request.args.get('date')
@@ -317,10 +330,14 @@ def usage_report():
     else:
         selected_date = datetime.now().date()
     
-    # Query OUT transactions for the selected date
+    # Query OUT transactions for the selected date using date range (handles timezone issues)
+    start_of_day = datetime.combine(selected_date, time.min)
+    end_of_day = datetime.combine(selected_date, time.max)
+    
     transactions = Transaction.query.filter(
         Transaction.transaction_type == 'OUT',
-        func.date(Transaction.executed_at) == selected_date
+        Transaction.executed_at >= start_of_day,
+        Transaction.executed_at <= end_of_day
     ).all()
     
     # --- Supervisor Usage ---
@@ -374,26 +391,92 @@ def usage_report():
             'transaction_count': data['transaction_count']
         })
     
+    # --- Merge matching supervisor and receiver entries ---
+    def normalize_name(name: str) -> str:
+        """Strip, lower-case, remove leading honorifics (mr., mrs., ms., dr., eng.), collapse multiple spaces."""
+        if not name:
+            return ''
+        name = name.strip().lower()
+        # Remove common honorifics
+        for honorific in ['mr.', 'mrs.', 'ms.', 'dr.', 'eng.']:
+            if name.startswith(honorific):
+                name = name[len(honorific):].strip()
+        # Collapse multiple spaces
+        name = re.sub(r'\s+', ' ', name)
+        return name
+    
+    # --- Merge matching supervisor and receiver entries ---
+    # Create normalized lookup for receivers
+    receiver_lookup = {}
+    for r in receiver_result:
+        normalized = normalize_name(r['receiver'])
+        receiver_lookup[normalized] = r
+    
+    # Track which receivers have been merged
+    merged_receivers = set()
+    
+    # Merge matching entries
+    merged_supervisor_result = []
+    for sup in supervisor_result:
+        sup_norm = normalize_name(sup['username'])
+        matching_receiver = receiver_lookup.get(sup_norm)
+        
+        if matching_receiver:
+            # Match found - merge into single entry
+            merged_supervisor_result.append({
+                'username': sup['username'],
+                'total_kg': sup['total_kg'] + matching_receiver['total_kg'],
+                'transaction_count': sup['transaction_count'] + matching_receiver['transaction_count'],
+                'is_merged': True,
+                'receiver_name': matching_receiver['receiver']
+            })
+            merged_receivers.add(normalize_name(matching_receiver['receiver']))
+        else:
+            # No match - keep as supervisor only
+            merged_supervisor_result.append({
+                'username': sup['username'],
+                'total_kg': sup['total_kg'],
+                'transaction_count': sup['transaction_count'],
+                'is_merged': False,
+                'receiver_name': None
+            })
+    
+    # Add receivers that didn't match any supervisor
+    unmatched_receiver_result = []
+    for rec in receiver_result:
+        rec_norm = normalize_name(rec['receiver'])
+        if rec_norm not in merged_receivers:
+            unmatched_receiver_result.append({
+                'receiver': rec['receiver'],
+                'total_kg': rec['total_kg'],
+                'transaction_count': rec['transaction_count'],
+                'is_merged': False
+            })
+    
     # Sort both by total kg descending
-    supervisor_result.sort(key=lambda x: x['total_kg'], reverse=True)
-    receiver_result.sort(key=lambda x: x['total_kg'], reverse=True)
+    merged_supervisor_result.sort(key=lambda x: x['total_kg'], reverse=True)
+    unmatched_receiver_result.sort(key=lambda x: x['total_kg'], reverse=True)
     
     # Combined totals
-    supervisor_total_kg = sum(r['total_kg'] for r in supervisor_result)
-    receiver_total_kg = sum(r['total_kg'] for r in receiver_result)
+    supervisor_total_kg = sum(r['total_kg'] for r in merged_supervisor_result)
+    receiver_total_kg = sum(r['total_kg'] for r in unmatched_receiver_result)
     combined_total_kg = supervisor_total_kg + receiver_total_kg
+    supervisor_tx_count = sum(r['transaction_count'] for r in merged_supervisor_result)
+    receiver_tx_count = sum(r['transaction_count'] for r in unmatched_receiver_result)
+    combined_tx_count = supervisor_tx_count + receiver_tx_count
     
     return render_template('usage_report.html',
                          selected_date=selected_date,
                          prev_date=selected_date - timedelta(days=1),
                          next_date=selected_date + timedelta(days=1),
-                         supervisor_usage=supervisor_result,
-                         receiver_usage=receiver_result,
+                         supervisor_usage=merged_supervisor_result,
+                         receiver_usage=unmatched_receiver_result,
                          supervisor_total_kg=supervisor_total_kg,
                          receiver_total_kg=receiver_total_kg,
                          combined_total_kg=combined_total_kg,
-                         supervisor_tx_count=sum(r['transaction_count'] for r in supervisor_result),
-                         receiver_tx_count=sum(r['transaction_count'] for r in receiver_result))
+                         supervisor_tx_count=supervisor_tx_count,
+                         receiver_tx_count=receiver_tx_count,
+                         combined_tx_count=combined_tx_count)
 
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
 @login_required

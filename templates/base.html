@@ -40,6 +40,9 @@
                    class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
                     <i class="fas fa-clipboard-list w-5"></i>
                     <span>Requests</span>
+                    {% if pending_requests_count > 0 %}
+                    <span class="ml-2 px-2 py-0.5 text-xs font-bold bg-red-600 text-white rounded-full">{{ pending_requests_count }}</span>
+                    {% endif %}
                 </a>
                 <a href="{{ url_for('stock.usage_report') }}" 
                    class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
