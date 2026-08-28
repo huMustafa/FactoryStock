@@ -4,6 +4,7 @@ from flask_wtf import CSRFProtect
 from dotenv import load_dotenv
 import os
 import time
+import threading
 from collections import defaultdict
 import redis
 from models import db, User, AuditLog
@@ -31,8 +32,9 @@ try:
 except Exception:
     redis_client = None
 
-# In-memory fallback for rate limiting
+# In-memory fallback for rate limiting (thread-safe)
 login_attempts = defaultdict(list)
+login_attempts_lock = threading.Lock()
 
 def rate_limit_login(ip, max_attempts=5, window_seconds=300):
     """Rate limit login attempts per IP using Redis with in-memory fallback"""
@@ -57,16 +59,13 @@ def rate_limit_login(ip, max_attempts=5, window_seconds=300):
         except Exception:
             pass  # Fall back to in-memory
     
-    # In-memory fallback
-    login_attempts[ip] = [t for t in login_attempts[ip] if t > window_start]
-    if len(login_attempts[ip]) >= max_attempts:
-        return False
-    login_attempts[ip].append(now)
+    # In-memory fallback (thread-safe)
+    with login_attempts_lock:
+        login_attempts[ip] = [t for t in login_attempts[ip] if t > window_start]
+        if len(login_attempts[ip]) >= max_attempts:
+            return False
+        login_attempts[ip].append(now)
     return True
-
-def record_login_attempt(ip):
-    """Record a login attempt - handled by rate_limit_login"""
-    pass  # rate_limit_login already records attempts
 
 def create_app():
     app = Flask(__name__)
@@ -74,7 +73,7 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///factory_stock.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
-    app.config['SESSION_COOKIE_SECURE'] = False  # Set to True if using HTTPS
+    app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
     app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access to session
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Prevent CSRF
     app.config['WTF_CSRF_TIME_LIMIT'] = None  # CSRF tokens don't expire
@@ -187,24 +186,20 @@ def create_app():
         """Log security-related events"""
         try:
             from models import SecurityEvent
-            if not hasattr(db.Model, '_decl_class_registry') or 'SecurityEvent' not in db.Model._decl_class_registry:
-                # SecurityEvent model may not exist yet, skip
-                pass
-            else:
-                user_id = current_user.id if current_user.is_authenticated else None
-                ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
-                ua = request.headers.get('User-Agent', '')[:500]
-                
-                event = SecurityEvent(
-                    event_type=event_type,
-                    user_id=user_id,
-                    ip_address=ip,
-                    user_agent=ua,
-                    details=details,
-                    severity=severity
-                )
-                db.session.add(event)
-                db.session.commit()
+            user_id = current_user.id if current_user.is_authenticated else None
+            ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
+            ua = request.headers.get('User-Agent', '')[:500]
+            
+            event = SecurityEvent(
+                event_type=event_type,
+                user_id=user_id,
+                ip_address=ip,
+                user_agent=ua,
+                details=details,
+                severity=severity
+            )
+            db.session.add(event)
+            db.session.commit()
         except Exception as e:
             db.session.rollback()
             app.logger.warning(f"Security event logging failed: {e}")
@@ -243,32 +238,55 @@ def create_app():
             return local_date.strftime(fmt)
         return ''
     
-    # Create tables and default users
+    # CLI command to create initial admin user
+    @app.cli.command('create-admin')
+    def create_admin():
+        """Create initial admin (owner) user."""
+        import click
+        from models import User
+        
+        if User.query.filter_by(role='owner').first():
+            click.echo('An owner user already exists.')
+            return
+        
+        username = click.prompt('Admin username')
+        email = click.prompt('Admin email', default='', show_default=False)
+        password = click.prompt('Admin password', hide_input=True, confirmation_prompt=True)
+        
+        # Validate password
+        import re
+        if len(password) < 8:
+            click.echo('Password must be at least 8 characters')
+            return
+        if not re.search(r'[A-Z]', password):
+            click.echo('Password must contain at least one uppercase letter')
+            return
+        if not re.search(r'[a-z]', password):
+            click.echo('Password must contain at least one lowercase letter')
+            return
+        if not re.search(r'\d', password):
+            click.echo('Password must contain at least one digit')
+            return
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            click.echo('Password must contain at least one special character')
+            return
+        
+        user = User(username=username, email=email if email else None, role='owner')
+        if user.set_password(password):
+            db.session.add(user)
+            db.session.flush()
+            user.add_password_history()
+            db.session.commit()
+            click.echo(f'Admin user "{username}" created successfully.')
+        else:
+            click.echo('Failed to create user - invalid password')
+            db.session.rollback()
+
+    # Create tables
     with app.app_context():
         db.create_all()
-        if not User.query.first():
-            # Create Store Keeper
-            sk = User(username='storekeeper', email='store@factory.com', role='store_keeper')
-            sk.set_password('StoreKeeper@123')
-            db.session.add(sk)
-            
-            # Create Owner
-            owner = User(username='owner', email='owner@factory.com', role='owner')
-            owner.set_password('Owner@123456')
-            db.session.add(owner)
-            
-            # Create Sample Supervisor
-            sup = User(username='ahmed', email='ahmed@factory.com', role='supervisor')
-            sup.set_password('Ahmed@123456')
-            db.session.add(sup)
-            
-            # Create default zones
-            from models import Zone
-            if not Zone.query.get('A-01'):
-                db.session.add(Zone(code='A-01', description='Rolls Area'))
-            
-            db.session.commit()
-            print("[OK] Default users created! CHANGE PASSWORDS IMMEDIATELY!")
+        # Note: Default users are NOT created automatically.
+        # Run 'flask create-admin' or use the settings page to create the initial admin user.
     
     return app
 

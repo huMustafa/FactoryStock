@@ -72,6 +72,8 @@ def add_user():
     user = User(username=username, email=email, role=role)
     if user.set_password(password):
         db.session.add(user)
+        db.session.flush()  # Assign ID to user
+        user.add_password_history()  # Record initial password in history
         db.session.commit()
         
         # Audit log

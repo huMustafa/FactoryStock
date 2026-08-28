@@ -44,12 +44,19 @@ class User(UserMixin, db.Model):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
         
         # Store in history if user already has ID (existing user)
+        # For new users, call add_password_history after flush/commit
         if self.id:
             history = PasswordHistory(user_id=self.id, password_hash=self.password_hash)
             db.session.add(history)
-        # For new users, password history will be added after commit via app logic
         
         return True
+
+    def add_password_history(self):
+        """Add current password to history - call after user has an ID (after flush)"""
+        from models import PasswordHistory
+        if self.id and self.password_hash:
+            history = PasswordHistory(user_id=self.id, password_hash=self.password_hash)
+            db.session.add(history)
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)

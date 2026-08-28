@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app
 from flask_login import login_user, logout_user, login_required, current_user
-from models import db, User, SecurityEvent
+from models import db, User
 from datetime import datetime
 from urllib.parse import urlparse, urljoin
 
@@ -68,9 +68,7 @@ def login():
             flash('Logged in successfully', 'success')
             return redirect(url_for('dashboard'))
         else:
-            # Record failed attempt for rate limiting
-            from main import record_login_attempt
-            record_login_attempt(client_ip)
+            # Rate limiting is handled in before_request
             log_security_event('LOGIN_FAILED', f'Failed login for: {username} from IP: {client_ip}', 'WARNING')
             flash('Invalid username or password', 'error')
     
