@@ -53,7 +53,6 @@
                             <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weight (kg)</th>
                             <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Wt/Pc (kg)</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty to Deduct</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200">
@@ -61,8 +60,7 @@
                         <tr class="hover:bg-gray-50" data-stock-id="{{ stock.id }}">
                             <td class="px-4 py-3">
                                 <input type="checkbox" name="stock_id" value="{{ stock.id }}" 
-                                       class="stock-checkbox h-4 w-4 text-green-600 rounded focus:ring-green-500"
-                                       onchange="toggleQtyInput(this, 'qty_{{ stock.id }}')">
+                                       class="stock-checkbox h-4 w-4 text-green-600 rounded focus:ring-green-500">
                             </td>
                             <td class="px-4 py-3">
                                 <span class="px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded">{{ stock.zone_code }}</span>
@@ -71,12 +69,6 @@
                             <td class="px-4 py-3 text-right">{{ "%.2f"|format(stock.quantity_kg) }}</td>
                             <td class="px-4 py-3 text-right text-sm text-gray-500">{{ "%.4f"|format(stock.weight_per_piece) }}</td>
                             <td class="px-4 py-3 text-sm text-gray-500">{{ stock.date_received|format_date }}</td>
-                            <td class="px-4 py-3">
-                                <input type="number" name="quantity" id="qty_{{ stock.id }}"
-                                       step="0.01" min="0.01" max="{{ "%.2f"|format(stock.quantity_pieces) }}"
-                                       class="qty-input w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
-                                       disabled placeholder="Select row first">
-                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -93,7 +85,7 @@
             <!-- Validation message -->
             <div id="validationMsg" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                 <i class="fas fa-exclamation-triangle mr-2"></i>
-                <span id="validationText">Please select stock records and enter valid quantities to meet the requested amount.</span>
+                <span id="validationText">Please select at least one stock record.</span>
             </div>
             
             <div class="flex gap-3 pt-4 border-t">
@@ -121,29 +113,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const requiredQty = {{ req.quantity_pieces_requested }};
     
     function updateSubmitState() {
-        let hasValidSelection = false;
+        let hasSelection = false;
         let totalSelected = 0;
         
         checkboxes.forEach(cb => {
             if (cb.checked) {
-                const qtyInput = document.getElementById('qty_' + cb.value);
-                const qty = parseFloat(qtyInput.value);
-                const max = parseFloat(qtyInput.max);
-                
-                if (!isNaN(qty) && qty > 0 && qty <= max) {
-                    hasValidSelection = true;
-                    totalSelected += qty;
-                }
+                hasSelection = true;
+                totalSelected += 1; // Each checked stock = 1 piece
             }
         });
         
         const meetsRequirement = totalSelected >= requiredQty;
-        submitBtn.disabled = !(hasValidSelection && meetsRequirement);
+        submitBtn.disabled = !(hasSelection && meetsRequirement);
         
         // Update summary
         if (totalSelected > 0) {
             selectionSummary.classList.remove('hidden');
-            selectedTotal.textContent = totalSelected.toFixed(2);
+            selectedTotal.textContent = totalSelected.toFixed(0);
             if (meetsRequirement) {
                 selectionSummary.classList.add('bg-green-50', 'border-green-200');
                 selectionSummary.classList.remove('bg-yellow-50', 'border-yellow-200');
@@ -156,46 +142,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Show validation message if needed
-        if (!hasValidSelection || !meetsRequirement) {
+        if (!hasSelection || !meetsRequirement) {
             validationMsg.classList.remove('hidden');
         } else {
             validationMsg.classList.add('hidden');
         }
     }
     
-    // Toggle quantity input when checkbox changes
+    // Toggle checkbox state
     checkboxes.forEach(cb => {
         cb.addEventListener('change', function() {
-            const qtyInput = document.getElementById('qty_' + this.value);
-            qtyInput.disabled = !this.checked;
-            if (this.checked) {
-                qtyInput.focus();
-            } else {
-                qtyInput.value = '';
-            }
-            updateSubmitState();
-        });
-    });
-    
-    // Validate quantity inputs
-    document.querySelectorAll('.qty-input').forEach(input => {
-        input.addEventListener('input', function() {
-            const max = parseFloat(this.max);
-            const val = parseFloat(this.value);
-            
-            if (val > max) {
-                this.value = max;
-            }
-            if (val < 0.01 && this.value !== '') {
-                this.value = 0.01;
-            }
-            updateSubmitState();
-        });
-        
-        input.addEventListener('blur', function() {
-            if (this.value === '' || parseFloat(this.value) < 0.01) {
-                this.value = '';
-            }
             updateSubmitState();
         });
     });
@@ -204,13 +160,6 @@ document.addEventListener('DOMContentLoaded', function() {
     selectAll.addEventListener('change', function() {
         checkboxes.forEach(cb => {
             cb.checked = this.checked;
-            const qtyInput = document.getElementById('qty_' + cb.value);
-            qtyInput.disabled = !this.checked;
-            if (this.checked && qtyInput.value === '') {
-                qtyInput.value = qtyInput.max;
-            } else if (!this.checked) {
-                qtyInput.value = '';
-            }
         });
         updateSubmitState();
     });
@@ -225,20 +174,16 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function validateForm() {
         let totalSelected = 0;
-        let hasValidSelection = false;
+        let hasSelection = false;
         
         checkboxes.forEach(cb => {
             if (cb.checked) {
-                const qtyInput = document.getElementById('qty_' + cb.value);
-                const qty = parseFloat(qtyInput.value);
-                const max = parseFloat(qtyInput.max);
-                if (!isNaN(qty) && qty > 0 && qty <= max) {
-                    hasValidSelection = true;
-                    totalSelected += qty;
-                }
+                hasSelection = true;
+                totalSelected += 1; // Each checked stock = 1 piece
             }
         });
-        return hasValidSelection && totalSelected >= requiredQty;
+        
+        return hasSelection && totalSelected >= requiredQty;
     }
 });
 </script>

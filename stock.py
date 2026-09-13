@@ -132,12 +132,14 @@ def stock_in():
         length = validate_float(request.form.get('length', 0), 0, 10000)
         micron_label = sanitize_input(request.form.get('micron', ''), 20)
         weight = validate_float(request.form.get('weight'), 0.01, 100000)
-        quantity = validate_float(request.form.get('quantity'), 0.01, 100000)
         is_printed = request.form.get('printed') == 'on'
         print_details = sanitize_input(request.form.get('print_details', ''), 200) if is_printed else None
         buyer_name = sanitize_input(request.form.get('buyer', ''), 100) if is_printed else None
         zone_code = sanitize_input(request.form.get('zone', ''), 10)
         date_received = datetime.now().date()
+        
+        # Quantity is always 1 piece per stock entry
+        quantity = 1.0
         
         # Bag-specific fields
         gusset = validate_float(request.form.get('gusset'), 0, 10000)
@@ -146,8 +148,9 @@ def stock_in():
         handle_type = sanitize_input(request.form.get('handle_type', ''), 20)
         
         # Roll-specific fields
-        gusset_type = sanitize_input(request.form.get('gusset_type', ''), 20)
-        gusset_length_inches = validate_float(request.form.get('gusset_length'), 0, 10000)
+        has_gusset = request.form.get('has_gusset') == 'on'
+        gusset_type = sanitize_input(request.form.get('gusset_type', ''), 20) if has_gusset else None
+        gusset_length_inches = validate_float(request.form.get('gusset_length'), 0, 10000) if has_gusset else None
         color = sanitize_input(request.form.get('color', ''), 50)
         
         # Unit conversion for bags only
@@ -160,7 +163,7 @@ def stock_in():
                 length = length / 2.54 if length else 0
         
         # Validate required fields
-        if not all([material, item_type, micron_label, weight is not None, quantity is not None, zone_code]):
+        if not all([material, item_type, micron_label, weight is not None, zone_code]):
             flash('All required fields must be filled', 'error')
             zones = Zone.query.order_by(Zone.code).all()
             return render_template('stock_in.html', zones=zones)
@@ -197,6 +200,13 @@ def stock_in():
                 zones = Zone.query.order_by(Zone.code).all()
                 return render_template('stock_in.html', zones=zones)
         
+        # Validate micron format based on item type
+        micron_error = validate_micron(micron_label, item_type)
+        if micron_error:
+            flash(micron_error, 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
         # Find or create item
         item = Item.query.filter_by(
             item_type=item_type,
@@ -222,9 +232,9 @@ def stock_in():
                 flap_inches=flap if item_type == 'bag' else None,
                 brand_name=brand_name if item_type == 'bag' else None,
                 handle_type=handle_type if item_type == 'bag' else None,
-gusset_type=gusset_type if item_type == 'roll' else None,
-            gusset_length_inches=gusset_length_inches if item_type == 'roll' else None,
-            color=color if item_type == 'roll' else None
+                gusset_type=gusset_type if item_type == 'roll' else None,
+                gusset_length_inches=gusset_length_inches if item_type == 'roll' else None,
+                color=color if item_type == 'roll' else None
             )
             db.session.add(item)
             db.session.flush()  # Get item ID
@@ -276,6 +286,49 @@ gusset_type=gusset_type if item_type == 'roll' else None,
     # GET request - show form
     zones = Zone.query.order_by(Zone.code).all()
     return render_template('stock_in.html', zones=zones)
+
+
+def validate_micron(micron_label, item_type):
+    """Validate micron format based on item type"""
+    import re
+    
+    if item_type == 'sheet':
+        # Sheet: single integer > 20, no slash
+        if '/' in micron_label:
+            return 'Sheet micron must be a single integer (no "/")'
+        if not re.match(r'^\d+$', micron_label):
+            return 'Sheet micron must be a single integer'
+        value = int(micron_label)
+        if value <= 20:
+            return 'Sheet micron must be greater than 20'
+    
+    elif item_type == 'roll':
+        # Roll: format x/y, both > 20, y = 2*x
+        if '/' not in micron_label:
+            return 'Roll micron must be in format x/y (e.g., 40/80)'
+        parts = micron_label.split('/')
+        if len(parts) != 2:
+            return 'Roll micron must be in format x/y (e.g., 40/80)'
+        if not re.match(r'^\d+$', parts[0]) or not re.match(r'^\d+$', parts[1]):
+            return 'Roll micron values must be integers'
+        x = int(parts[0])
+        y = int(parts[1])
+        if x <= 20 or y <= 20:
+            return 'Both micron values must be greater than 20'
+        if y != 2 * x:
+            return 'Second value must be exactly double the first (e.g., 40/80)'
+    
+    elif item_type == 'bag':
+        # Bag: single integer > 0
+        if '/' in micron_label:
+            return 'Bag micron must be a single integer'
+        if not re.match(r'^\d+$', micron_label):
+            return 'Bag micron must be a single integer'
+        value = int(micron_label)
+        if value <= 0:
+            return 'Bag micron must be greater than 0'
+    
+    return None
 
 @stock_bp.route('/audit')
 @login_required
@@ -512,11 +565,11 @@ def stock_out(item_id):
             if not stock or stock.item_id != item.id:
                 continue
             
-            qty_str = request.form.get(f'quantity_{stock_id}', '0')
-            qty = validate_float(qty_str, 0.01, stock.quantity_pieces)
+            # Deduct exactly 1 piece per selected stock record
+            qty = 1.0
             
-            if qty is None or qty > stock.quantity_pieces:
-                flash(f'Invalid quantity for stock #{stock_id}.', 'error')
+            if stock.quantity_pieces < qty:
+                flash(f'Insufficient stock in record #{stock_id}.', 'error')
                 return redirect(request.url)
             
             # Calculate proportional KG
@@ -568,7 +621,7 @@ def stock_out(item_id):
         current_app.log_audit('stock', item.id, 'DELETE', 
                              {'quantity': total_deducted_pieces}, {'deducted': total_deducted_pieces})
         
-        flash(f'Successfully stocked out {total_deducted_pieces:.2f} pieces ({total_deducted_kg:.2f} kg) of {item.display_name}.', 'success')
+        flash(f'Successfully stocked out {total_deducted_pieces:.0f} pieces ({total_deducted_kg:.2f} kg) of {item.display_name}.', 'success')
         return redirect(url_for('stock.stock_directory'))
 
     # GET - show stock selection

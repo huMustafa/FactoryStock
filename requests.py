@@ -145,33 +145,18 @@ def fulfill_request(request_id):
         flash('Receiver name is required.', 'error')
         return redirect(url_for('requests.requests_list'))
     
-    # Get selected stock records and quantities
+    # Get selected stock records
     stock_ids = request.form.getlist('stock_id')
-    quantities = request.form.getlist('quantity')
     
     if not stock_ids:
         flash('Please select at least one stock record.', 'error')
         return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
     
-    # Validate and process selections
-    selected_stocks = []
-    total_selected_qty = 0
+    # Validate selections - each checked stock = 1 piece deducted
+    total_selected = len(stock_ids)
     
-    for i, stock_id in enumerate(stock_ids):
-        qty = validate_float(quantities[i], 0.01, 100000)
-        if qty is None:
-            continue
-        
-        stock = Stock.query.get(stock_id)
-        if not stock or stock.quantity_pieces < qty:
-            flash(f'Invalid quantity for stock record #{stock_id}', 'error')
-            return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
-        
-        selected_stocks.append({'stock': stock, 'qty': qty})
-        total_selected_qty += qty
-    
-    if total_selected_qty < req.quantity_pieces_requested:
-        flash(f'Selected quantity ({total_selected_qty:.2f}) is less than requested ({req.quantity_pieces_requested:.2f})', 'error')
+    if total_selected < req.quantity_pieces_requested:
+        flash(f'Selected quantity ({total_selected}) is less than requested ({req.quantity_pieces_requested:.0f})', 'error')
         return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
     
     # Get item details for transaction
@@ -180,21 +165,35 @@ def fulfill_request(request_id):
         flash('Item no longer exists', 'error')
         return redirect(url_for('requests.requests_list'))
     
-    # Deduct from selected stock records
-    for selection in selected_stocks:
-        stock = selection['stock']
-        deduct_amount = selection['qty']
+    # Deduct from selected stock records (1 piece each)
+    total_deducted_pieces = 0
+    total_deducted_kg = 0
+    
+    for stock_id in stock_ids:
+        stock = Stock.query.get(int(stock_id))
+        if not stock:
+            flash(f'Stock record #{stock_id} not found.', 'error')
+            return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
         
-        stock.quantity_pieces -= deduct_amount
+        if stock.quantity_pieces < 1:
+            flash(f'Insufficient stock in record #{stock_id}.', 'error')
+            return redirect(url_for('requests.fulfill_request_view', request_id=request_id))
+        
+        qty = 1.0
         
         # Calculate proportional KG
-        original_pieces = stock.quantity_pieces + deduct_amount
+        original_pieces = stock.quantity_pieces
         if original_pieces > 0:
             kg_ratio = stock.quantity_kg / original_pieces
-            deduct_kg = deduct_amount * kg_ratio
+            deduct_kg = qty * kg_ratio
             stock.quantity_kg -= deduct_kg
         else:
             deduct_kg = 0
+        
+        # Deduct from stock
+        stock.quantity_pieces -= qty
+        total_deducted_pieces += qty
+        total_deducted_kg += deduct_kg
         
         # Create transaction
         transaction = Transaction(
@@ -207,7 +206,7 @@ def fulfill_request(request_id):
             is_printed=item.is_printed,
             buyer_name=item.buyer_name,
             zone_code=stock.zone_code,
-            quantity_pieces=deduct_amount,
+            quantity_pieces=qty,
             quantity_kg=deduct_kg,
             request_id=req.id,
             user_id=req.requested_by,  # Use supervisor's ID for usage tracking
@@ -233,7 +232,7 @@ def fulfill_request(request_id):
     current_app.log_audit('requests', req.id, 'UPDATE', 
                          {'status': 'pending'}, {'status': 'completed', 'fulfilled_by': current_user.id, 'receiver': receiver_name})
     
-    flash('Request fulfilled successfully', 'success')
+    flash(f'Request fulfilled successfully. Deducted {total_deducted_pieces:.0f} pieces ({total_deducted_kg:.2f} kg).', 'success')
     return redirect(url_for('requests.requests_list'))
 
 @requests_bp.route('/<int:request_id>/cancel', methods=['POST'])
