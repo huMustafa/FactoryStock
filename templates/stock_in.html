@@ -13,7 +13,7 @@
     </div>
     
     <div class="bg-white rounded-lg shadow p-6">
-        <form method="POST" class="space-y-6">
+        <form method="POST" id="stockInForm" class="space-y-6">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <!-- Item Type & Material -->
             <div class="grid grid-cols-2 gap-6">
@@ -54,10 +54,10 @@
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Micron (e.g., 60/120) *</label>
-                    <input type="text" name="micron" placeholder="60/120" required
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Micron *</label>
+                    <input type="text" name="micron" id="micronInput" placeholder="60/120" required
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    <p class="text-xs text-gray-500 mt-1">Enter single or double (e.g., 60 or 60/120)</p>
+                    <p class="text-xs text-gray-500 mt-1" id="micronHint">Enter single or double (e.g., 60 or 60/120)</p>
                 </div>
             </div>
             
@@ -67,13 +67,11 @@
                 
                 <div class="grid grid-cols-2 gap-6">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Gusset Type</label>
-                        <select name="gusset_type" 
-                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                            <option value="">Select gusset type...</option>
-                            <option value="1-side">1-Side Gusset</option>
-                            <option value="2-side">2-Side Gusset</option>
-                        </select>
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" name="has_gusset" id="gussetToggle" onchange="toggleGussetFields()"
+                                   class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <span class="text-sm font-medium text-gray-700">Has Gusset</span>
+                        </label>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Color</label>
@@ -82,11 +80,22 @@
                     </div>
                 </div>
                 
-                <div class="grid grid-cols-2 gap-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Gusset Length (inches)</label>
-                        <input type="number" name="gusset_length" step="0.01" 
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <div id="gussetFields" class="hidden space-y-4 pl-8 border-l-4 border-blue-200">
+                    <div class="grid grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Gusset Type</label>
+                            <select name="gusset_type" 
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select gusset type...</option>
+                                <option value="1-side">1-Side Gusset</option>
+                                <option value="2-side">2-Side Gusset</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Gusset Length (inches)</label>
+                            <input type="number" name="gusset_length" step="0.01" 
+                                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -127,18 +136,12 @@
                 </div>
             </div>
             
-            <!-- Quantity & Weight -->
-            <div class="grid grid-cols-2 gap-6">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Quantity (pieces) *</label>
-                    <input type="number" name="quantity" step="0.01" required
-                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Total Weight (kg) *</label>
-                    <input type="number" name="weight" step="0.01" required
-                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                </div>
+            <!-- Weight (Quantity is always 1 piece per stock entry) -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Total Weight (kg) *</label>
+                <input type="number" name="weight" step="0.01" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-500 mt-1">Quantity is automatically set to 1 piece per stock entry.</p>
             </div>
             
             <!-- Printed Toggle -->
@@ -164,7 +167,7 @@
                 </div>
             </div>
             
-            <!-- Zone & Date -->
+            <!-- Zone -->
             <div class="grid grid-cols-2 gap-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Warehouse Zone *</label>
@@ -203,6 +206,7 @@ function toggleDimensions() {
     const unitField = document.getElementById('unitField');
     const widthInput = widthField.querySelector('input');
     const lengthInput = lengthField.querySelector('input');
+    const micronHint = document.getElementById('micronHint');
     
     if (type === 'bag') {
         widthField.style.display = 'block';
@@ -212,6 +216,7 @@ function toggleDimensions() {
         unitField.style.display = 'block';
         widthInput.setAttribute('placeholder', 'Width');
         lengthInput.setAttribute('placeholder', 'Length');
+        micronHint.textContent = 'Enter single integer (e.g., 60)';
         updateDimensionLabels();
     } else if (type === 'roll') {
         widthField.style.display = 'block';
@@ -221,6 +226,7 @@ function toggleDimensions() {
         unitField.style.display = 'none';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
+        micronHint.textContent = 'Enter format x/y where y = 2*x (e.g., 40/80). Both must be > 20.';
     } else if (type === 'sheet') {
         widthField.style.display = 'block';
         lengthField.style.display = 'none';
@@ -229,13 +235,16 @@ function toggleDimensions() {
         unitField.style.display = 'none';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
+        micronHint.textContent = 'Enter single integer > 20 (e.g., 60)';
     } else {
         widthField.style.display = 'none';
         lengthField.style.display = 'none';
         bagFields.style.display = 'none';
         rollFields.style.display = 'none';
         unitField.style.display = 'none';
+        micronHint.textContent = 'Enter single or double (e.g., 60 or 60/120)';
     }
+    validateMicron();
 }
 
 function updateDimensionLabels() {
@@ -266,7 +275,111 @@ document.addEventListener('DOMContentLoaded', function() {
     if (bagExtraUnit) {
         bagExtraUnit.addEventListener('change', updateDimensionLabels);
     }
+    
+    // Add micron validation on input
+    const micronInput = document.getElementById('micronInput');
+    if (micronInput) {
+        micronInput.addEventListener('input', validateMicron);
+        micronInput.addEventListener('blur', validateMicron);
+    }
 });
+
+function validateMicron() {
+    const type = document.getElementById('itemType').value;
+    const micronInput = document.getElementById('micronInput');
+    const micronHint = document.getElementById('micronHint');
+    const value = micronInput.value.trim();
+    
+    // Clear previous validation state
+    micronInput.classList.remove('border-red-500', 'border-green-500');
+    
+    if (!value) {
+        micronHint.classList.remove('text-red-500', 'text-green-500');
+        return true;
+    }
+    
+    let isValid = false;
+    let message = '';
+    
+    if (type === 'sheet') {
+        // Sheet: single integer > 20, no slash
+        if (!value.includes('/') && /^\d+$/.test(value)) {
+            const num = parseInt(value, 10);
+            if (num > 20) {
+                isValid = true;
+            } else {
+                message = 'Sheet micron must be a single integer greater than 20';
+            }
+        } else {
+            message = 'Sheet micron must be a single integer (no "/") greater than 20';
+        }
+    } else if (type === 'roll') {
+        // Roll: format x/y, both > 20, y = 2*x
+        const parts = value.split('/');
+        if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+            const x = parseInt(parts[0], 10);
+            const y = parseInt(parts[1], 10);
+            if (x > 20 && y > 20 && y === 2 * x) {
+                isValid = true;
+            } else if (x <= 20 || y <= 20) {
+                message = 'Both micron values must be greater than 20';
+            } else if (y !== 2 * x) {
+                message = 'Second value must be exactly double the first (e.g., 40/80)';
+            }
+        } else {
+            message = 'Roll micron must be in format x/y (e.g., 40/80)';
+        }
+    } else if (type === 'bag') {
+        // Bag: single integer > 0 (existing behavior)
+        if (!value.includes('/') && /^\d+$/.test(value)) {
+            const num = parseInt(value, 10);
+            if (num > 0) {
+                isValid = true;
+            } else {
+                message = 'Bag micron must be greater than 0';
+            }
+        } else {
+            message = 'Bag micron must be a single integer';
+        }
+    } else {
+        // No type selected yet - allow any format
+        isValid = true;
+    }
+    
+    if (isValid) {
+        micronInput.classList.add('border-green-500');
+        micronInput.classList.remove('border-red-500');
+        micronHint.textContent = message || (type === 'sheet' ? 'Enter single integer > 20 (e.g., 60)' : type === 'roll' ? 'Enter format x/y where y = 2*x (e.g., 40/80). Both must be > 20.' : 'Enter single integer (e.g., 60)');
+        micronHint.classList.remove('text-red-500');
+        micronHint.classList.add('text-green-500');
+    } else {
+        micronInput.classList.add('border-red-500');
+        micronInput.classList.remove('border-green-500');
+        micronHint.textContent = message;
+        micronHint.classList.remove('text-green-500');
+        micronHint.classList.add('text-red-500');
+    }
+    
+    return isValid;
+}
+
+function toggleGussetFields() {
+    const checkbox = document.getElementById('gussetToggle');
+    const fields = document.getElementById('gussetFields');
+    if (checkbox.checked) {
+        fields.classList.remove('hidden');
+    } else {
+        fields.classList.add('hidden');
+        // Clear gusset fields when hidden
+        fields.querySelectorAll('input, select').forEach(el => {
+            if (el.type === 'checkbox' || el.type === 'radio') {
+                el.checked = false;
+            } else {
+                el.value = '';
+            }
+        });
+    }
+}
 
 function togglePrintedFields() {
     const checkbox = document.getElementById('printedToggle');
@@ -275,8 +388,19 @@ function togglePrintedFields() {
         fields.classList.remove('hidden');
     } else {
         fields.classList.add('hidden');
+        fields.querySelectorAll('input').forEach(el => el.value = '');
     }
 }
+
+// Form submission validation
+document.getElementById('stockInForm').addEventListener('submit', function(e) {
+    if (!validateMicron()) {
+        e.preventDefault();
+        alert('Please fix the micron validation errors before submitting.');
+        return false;
+    }
+    // Quantity is always 1, no need to validate quantity field
+});
 </script>
 
 {% endblock %}
