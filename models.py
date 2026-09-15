@@ -167,7 +167,7 @@ class Transaction(db.Model):
     __tablename__ = 'transactions'
     
     id = db.Column(db.Integer, primary_key=True)
-    transaction_type = db.Column(db.String(10), nullable=False)  # 'IN', 'OUT', 'RETURN'
+    transaction_type = db.Column(db.String(20), nullable=False)  # 'IN', 'OUT', 'RETURN', 'DIRECT_USAGE'
     item_type = db.Column(db.String(20), nullable=False)
     material = db.Column(db.String(20), nullable=False)
     width_inches = db.Column(db.Float, nullable=True)
