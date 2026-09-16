@@ -263,7 +263,10 @@
                 <thead class="bg-gray-50 border-b border-gray-200">
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Machine / Line</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Given To (Person)</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gusset</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Printed</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Weight (kg)</th>
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Direct Usage Total</th>
@@ -275,7 +278,34 @@
                     <tr class="hover:bg-gray-50">
                         <td class="px-6 py-4 text-sm text-gray-500">{{ loop.index }}</td>
                         <td class="px-6 py-4">
-                            <div class="text-sm font-medium text-gray-900">{{ usage.machine_line }}</div>
+                            <div class="text-sm font-medium text-gray-900">{{ usage.person_name }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if usage.display_info.has_gusset %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                <i class="fas fa-check mr-1"></i>{{ usage.display_info.gusset_type or 'Yes' }}
+                            </span>
+                            {% else %}
+                            <span class="text-gray-400 text-sm">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if usage.display_info.is_printed %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                <i class="fas fa-print mr-1"></i>Yes
+                            </span>
+                            {% else %}
+                            <span class="text-gray-400 text-sm">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if usage.display_info.color %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                <i class="fas fa-palette mr-1"></i>{{ usage.display_info.color }}
+                            </span>
+                            {% else %}
+                            <span class="text-gray-400 text-sm">-</span>
+                            {% endif %}
                         </td>
                         <td class="px-6 py-4 text-right">
                             <span class="text-sm font-medium text-gray-900">
@@ -308,7 +338,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                        <td colspan="9" class="px-6 py-12 text-center text-gray-500">
                             <i class="fas fa-industry text-4xl mb-3 text-gray-300"></i>
                             <p>No direct usage recorded for {{ selected_date|format_date }}</p>
                         </td>
@@ -317,7 +347,7 @@
                 </tbody>
                 <tfoot class="bg-gray-50 border-t border-gray-200">
                     <tr>
-                        <td colspan="2" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Direct Usage Total</td>
+                        <td colspan="5" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Direct Usage Total</td>
                         <td class="px-6 py-3 text-right text-lg font-bold text-gray-900">{{ direct_usage_tx_count }}</td>
                         <td class="px-6 py-3 text-right text-lg font-bold text-orange-600">{{ "%.2f"|format(direct_usage_total_kg) }}</td>
                         <td class="px-6 py-3 text-right text-lg font-bold text-green-600">100%</td>

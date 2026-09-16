@@ -9,7 +9,7 @@
             <i class="fas fa-industry text-orange-600"></i>
             Direct Usage (Pre-Stock)
         </h1>
-        <p class="text-gray-600 mt-1">Log material consumed by machines before reaching warehouse racks</p>
+        <p class="text-gray-600 mt-1">Log material consumed before reaching warehouse racks</p>
     </div>
     
     <div class="bg-white rounded-lg shadow p-6">
@@ -61,19 +61,81 @@
                 </div>
             </div>
             
-            <!-- Weight -->
+            <!-- Roll-specific fields (shown when Roll is selected) -->
+            <div id="rollFields" class="space-y-6 hidden" style="display:none;">
+                <h4 class="text-lg font-semibold text-gray-800 border-b pb-2">Roll Specifications</h4>
+                
+                <div class="grid grid-cols-2 gap-6">
+                    <div>
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" name="has_gusset" id="gussetToggle" onchange="toggleGussetFields()"
+                                   class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <span class="text-sm font-medium text-gray-700">Has Gusset</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                        <input type="text" name="color" placeholder="e.g., Blue, Transparent, White"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                
+                <div id="gussetFields" class="hidden space-y-4 pl-8 border-l-4 border-blue-200">
+                    <div class="grid grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Gusset Type</label>
+                            <select name="gusset_type" 
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select gusset type...</option>
+                                <option value="1-side">1-Side Gusset</option>
+                                <option value="2-side">2-Side Gusset</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Gusset Length (inches)</label>
+                            <input type="number" name="gusset_length" step="0.01" 
+                                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Weight (Quantity is always 1 piece per entry) -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Weight (kg) *</label>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Total Weight (kg) *</label>
                 <input type="number" name="weight" step="0.01" required
                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 <p class="text-xs text-gray-500 mt-1" id="weightHint">Quantity is automatically set to 1 piece per entry.</p>
             </div>
             
-            <!-- Machine/Line -->
+            <!-- Printed Toggle -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Machine / Line *</label>
-                <input type="text" name="machine_line" required 
-                       placeholder="e.g., Extruder Line 1, Slitter #3"
+                <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" name="printed" id="printedToggle" onchange="togglePrintedFields()"
+                           class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                    <span class="text-sm font-medium text-gray-700">Printed Item</span>
+                </label>
+            </div>
+            
+            <!-- Printed Fields (Conditional) -->
+            <div id="printedFields" class="space-y-4 hidden pl-8 border-l-4 border-blue-200">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Print Details</label>
+                    <input type="text" name="print_details" placeholder="e.g., Logo + Product Name"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Buyer Name</label>
+                    <input type="text" name="buyer" placeholder="e.g., IKEA, Walmart, Gul Ahmed"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            
+            <!-- Given To (Person) -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Given To (Person) *</label>
+                <input type="text" name="given_to" required 
+                       placeholder="e.g., Mr. Ahmed, Supervisor Ali"
                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
             </div>
             
@@ -107,22 +169,26 @@ function toggleDimensions() {
     const widthInput = widthField.querySelector('input');
     const lengthInput = lengthField.querySelector('input');
     const micronHint = document.getElementById('micronHint');
+    const rollFields = document.getElementById('rollFields');
     
     if (type === 'roll') {
         widthField.style.display = 'block';
         lengthField.style.display = 'none';
+        rollFields.style.display = 'block';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
         micronHint.textContent = 'Enter format x/y where y = 2*x (e.g., 40/80). Both must be >= 10.';
     } else if (type === 'sheet') {
         widthField.style.display = 'block';
         lengthField.style.display = 'none';
+        rollFields.style.display = 'none';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
         micronHint.textContent = 'Enter single integer >= 10 (e.g., 60)';
     } else {
         widthField.style.display = 'none';
         lengthField.style.display = 'none';
+        rollFields.style.display = 'none';
         micronHint.textContent = 'Enter single or double (e.g., 60 or 60/120)';
     }
     validateMicron();
@@ -308,6 +374,35 @@ function validateWeight() {
         weightInput.classList.remove('border-red-500');
     }
     return true;
+}
+
+function toggleGussetFields() {
+    const checkbox = document.getElementById('gussetToggle');
+    const fields = document.getElementById('gussetFields');
+    if (checkbox.checked) {
+        fields.classList.remove('hidden');
+    } else {
+        fields.classList.add('hidden');
+        // Clear gusset fields when hidden
+        fields.querySelectorAll('input, select').forEach(el => {
+            if (el.type === 'checkbox' || el.type === 'radio') {
+                el.checked = false;
+            } else {
+                el.value = '';
+            }
+        });
+    }
+}
+
+function togglePrintedFields() {
+    const checkbox = document.getElementById('printedToggle');
+    const fields = document.getElementById('printedFields');
+    if (checkbox.checked) {
+        fields.classList.remove('hidden');
+    } else {
+        fields.classList.add('hidden');
+        fields.querySelectorAll('input').forEach(el => el.value = '');
+    }
 }
 
 // Form submission validation

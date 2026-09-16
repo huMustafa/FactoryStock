@@ -311,15 +311,26 @@ def direct_usage():
         length = validate_float(request.form.get('length', 0), 0, 10000)
         micron_label = sanitize_input(request.form.get('micron', ''), 20)
         weight = validate_float(request.form.get('weight'), 0.01, 100000)
-        machine_line = sanitize_input(request.form.get('machine_line', ''), 100)
+        given_to = sanitize_input(request.form.get('given_to', ''), 100)
         notes = sanitize_input(request.form.get('notes', ''), 500)
         date_used = datetime.now().date()
+        
+        # Roll-specific fields
+        has_gusset = request.form.get('has_gusset') == 'on'
+        gusset_type = sanitize_input(request.form.get('gusset_type', ''), 20) if has_gusset else None
+        gusset_length_inches = validate_float(request.form.get('gusset_length'), 0, 10000) if has_gusset else None
+        color = sanitize_input(request.form.get('color', ''), 50)
+        
+        # Printed fields
+        is_printed = request.form.get('printed') == 'on'
+        print_details = sanitize_input(request.form.get('print_details', ''), 200) if is_printed else None
+        buyer_name = sanitize_input(request.form.get('buyer', ''), 100) if is_printed else None
         
         # Quantity is always 1 piece for direct usage
         quantity = 1.0
         
         # Validate required fields
-        if not all([material, item_type, micron_label, weight is not None, machine_line]):
+        if not all([material, item_type, micron_label, weight is not None, given_to]):
             flash('All required fields must be filled', 'error')
             return render_template('direct_usage.html')
         
@@ -356,20 +367,21 @@ def direct_usage():
             width_inches=width,
             length_inches=length,
             micron_label=micron_label,
-            is_printed=False,
-            buyer_name=None,
+            is_printed=is_printed,
+            buyer_name=buyer_name,
             zone_code=None,
             quantity_pieces=quantity,
             quantity_kg=weight,
             user_id=current_user.id,
-            notes=f"Direct Usage - Machine/Line: {machine_line}. {notes}".strip(),
+            notes=notes,
             gusset_inches=None,
             flap_inches=None,
             brand_name=None,
             handle_type=None,
-            gusset_type=None,
-            gusset_length_inches=None,
-            color=None
+            gusset_type=gusset_type if item_type == 'roll' else None,
+            gusset_length_inches=gusset_length_inches if item_type == 'roll' else None,
+            color=color if item_type == 'roll' else None,
+            given_to=given_to
         )
         db.session.add(transaction)
         
@@ -377,7 +389,7 @@ def direct_usage():
         
         # Audit log
         current_app.log_audit('transactions', transaction.id, 'INSERT', 
-                             None, {'type': 'DIRECT_USAGE', 'weight': weight, 'machine_line': machine_line})
+                             None, {'type': 'DIRECT_USAGE', 'weight': weight, 'given_to': given_to})
         
         flash('Direct usage logged successfully', 'success')
         return redirect(url_for('stock.direct_usage'))
@@ -559,26 +571,45 @@ def usage_report():
     # --- Direct Usage (Pre-Stock) ---
     direct_usage_data = {}
     for tx in direct_usage_transactions:
-        # Extract machine/line from notes
-        machine_line = 'Unknown'
-        if tx.notes and 'Machine/Line:' in tx.notes:
-            try:
-                machine_line = tx.notes.split('Machine/Line:')[-1].split('.')[0].strip()
-            except:
-                pass
+        # Extract person name from given_to field (new) or notes (legacy)
+        person_name = tx.given_to
+        if not person_name and tx.notes:
+            if 'Machine/Line:' in tx.notes:
+                try:
+                    person_name = tx.notes.split('Machine/Line:')[-1].split('.')[0].strip()
+                except:
+                    pass
+            elif 'Given to:' in tx.notes:
+                try:
+                    person_name = tx.notes.split('Given to:')[-1].split('.')[0].strip()
+                except:
+                    pass
         
-        if machine_line not in direct_usage_data:
-            direct_usage_data[machine_line] = {'total_kg': 0.0, 'transaction_count': 0}
-        direct_usage_data[machine_line]['total_kg'] += float(tx.quantity_kg or 0)
-        direct_usage_data[machine_line]['transaction_count'] += 1
+        if not person_name:
+            person_name = 'Unknown'
+        
+        # Build display info with additional fields
+        display_info = {
+            'person_name': person_name,
+            'has_gusset': tx.gusset_type is not None,
+            'gusset_type': tx.gusset_type,
+            'is_printed': tx.is_printed,
+            'color': tx.color
+        }
+        
+        if person_name not in direct_usage_data:
+            direct_usage_data[person_name] = {'total_kg': 0.0, 'transaction_count': 0, 'display_info': display_info}
+        direct_usage_data[person_name]['total_kg'] += float(tx.quantity_kg or 0)
+        direct_usage_data[person_name]['transaction_count'] += 1
     
     # Build direct usage result list
     direct_usage_result = []
-    for machine, data in sorted(direct_usage_data.items()):
+    for person, data in sorted(direct_usage_data.items()):
         direct_usage_result.append({
-            'machine_line': machine,
+            'person_name': person,
             'total_kg': data['total_kg'],
-            'transaction_count': data['transaction_count']
+            'transaction_count': data['transaction_count'],
+            'display_info': data['display_info']
         })
     
     # Sort by total kg descending

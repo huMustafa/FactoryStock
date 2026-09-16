@@ -190,6 +190,9 @@ class Transaction(db.Model):
     gusset_length_inches = db.Column(db.Float, nullable=True)
     color = db.Column(db.String(50), nullable=True)
     
+    # Direct Usage specific
+    given_to = db.Column(db.String(100), nullable=True)  # Person name for direct usage
+    
     request_id = db.Column(db.Integer, db.ForeignKey('requests.id'), nullable=True)
     original_transaction_id = db.Column(db.Integer, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
