@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Stock In - FactoryStock{% endblock %}
+{% block title %}Direct Usage (Pre-Stock) - FactoryStock{% endblock %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
     <div>
         <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <i class="fas fa-plus-circle text-green-600"></i>
-            Stock In
+            <i class="fas fa-industry text-orange-600"></i>
+            Direct Usage (Pre-Stock)
         </h1>
-        <p class="text-gray-600 mt-1">Record new stock arriving from production surplus</p>
+        <p class="text-gray-600 mt-1">Log material consumed before reaching warehouse racks</p>
     </div>
     
     <div class="bg-white rounded-lg shadow p-6">
-        <form method="POST" id="stockInForm" class="space-y-6">
+        <form method="POST" id="directUsageForm" class="space-y-6">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <!-- Item Type & Material -->
             <div class="grid grid-cols-2 gap-6">
@@ -24,7 +24,6 @@
                         <option value="">Select type...</option>
                         <option value="roll">Roll</option>
                         <option value="sheet">Sheet</option>
-                        <option value="bag">Bag</option>
                     </select>
                 </div>
                 <div>
@@ -101,48 +100,12 @@
                 </div>
             </div>
             
-            <!-- Bag-specific fields (shown when Bag is selected) -->
-            <div id="bagFields" class="space-y-6 hidden" style="display:none;">
-                <h4 class="text-lg font-semibold text-gray-800 border-b pb-2">Bag Specifications</h4>
-                
-                <div class="grid grid-cols-3 gap-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Gusset (inches)</label>
-                        <input type="number" name="gusset" step="0.01" 
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Flap (inches)</label>
-                        <input type="number" name="flap" step="0.01" 
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    </div>
-                </div>
-                
-                <div class="grid grid-cols-2 gap-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Brand Name</label>
-                        <input type="text" name="brand_name" placeholder="e.g., Custom Brand"
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Handle Type</label>
-                        <select name="handle_type" 
-                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                            <option value="">Select handle...</option>
-                            <option value="D-cut">D-cut Handle</option>
-                            <option value="Loop">Loop Handle</option>
-                            <option value="None">No Handle</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Weight (Quantity is always 1 piece per stock entry) -->
+            <!-- Weight (Quantity is always 1 piece per entry) -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">Total Weight (kg) *</label>
                 <input type="number" name="weight" step="0.01" required
                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                <p class="text-xs text-gray-500 mt-1" id="weightHint">Quantity is automatically set to 1 piece per stock entry.</p>
+                <p class="text-xs text-gray-500 mt-1" id="weightHint">Quantity is automatically set to 1 piece per entry.</p>
             </div>
             
             <!-- Printed Toggle -->
@@ -168,25 +131,26 @@
                 </div>
             </div>
             
-            <!-- Zone -->
-            <div class="grid grid-cols-2 gap-6">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Warehouse Zone *</label>
-                    <select name="zone" required
-                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                        <option value="">Select zone...</option>
-                        {% for zone in zones %}
-                        <option value="{{ zone.code }}">{{ zone.code }} - {{ zone.description or 'No description' }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+            <!-- Given To (Person) -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Given To (Person) *</label>
+                <input type="text" name="given_to" required 
+                       placeholder="e.g., Mr. Ahmed, Supervisor Ali"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <!-- Notes -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Notes (Optional)</label>
+                <textarea name="notes" rows="3" placeholder="Additional details about this usage..."
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
             </div>
             
             <!-- Actions -->
             <div class="flex gap-4 pt-4 border-t">
                 <button type="submit"
-                        class="flex-1 bg-green-600 text-white py-3 px-6 rounded-lg hover:bg-green-700 font-medium transition-colors">
-                    <i class="fas fa-save mr-2"></i>Save Stock
+                        class="flex-1 bg-orange-600 text-white py-3 px-6 rounded-lg hover:bg-orange-700 font-medium transition-colors">
+                    <i class="fas fa-save mr-2"></i>Log Direct Usage
                 </button>
                 <a href="{{ url_for('stock.stock_directory') }}"
                    class="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium transition-colors">
@@ -202,47 +166,29 @@ function toggleDimensions() {
     const type = document.getElementById('itemType').value;
     const widthField = document.getElementById('widthField');
     const lengthField = document.getElementById('lengthField');
-    const bagFields = document.getElementById('bagFields');
-    const rollFields = document.getElementById('rollFields');
-    const unitField = document.getElementById('unitField');
     const widthInput = widthField.querySelector('input');
     const lengthInput = lengthField.querySelector('input');
     const micronHint = document.getElementById('micronHint');
+    const rollFields = document.getElementById('rollFields');
     
-    if (type === 'bag') {
-        widthField.style.display = 'block';
-        lengthField.style.display = 'block';
-        bagFields.style.display = 'block';
-        rollFields.style.display = 'none';
-        unitField.style.display = 'block';
-        widthInput.setAttribute('placeholder', 'Width');
-        lengthInput.setAttribute('placeholder', 'Length');
-        micronHint.textContent = 'Enter single integer (e.g., 60)';
-        updateDimensionLabels();
-    } else if (type === 'roll') {
+    if (type === 'roll') {
         widthField.style.display = 'block';
         lengthField.style.display = 'none';
-        bagFields.style.display = 'none';
         rollFields.style.display = 'block';
-        unitField.style.display = 'none';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
         micronHint.textContent = 'Enter format x/y where y = 2*x (e.g., 40/80). Both must be >= 10.';
     } else if (type === 'sheet') {
         widthField.style.display = 'block';
         lengthField.style.display = 'none';
-        bagFields.style.display = 'none';
         rollFields.style.display = 'none';
-        unitField.style.display = 'none';
         widthInput.setAttribute('placeholder', 'Width');
         widthInput.previousElementSibling.textContent = 'Width (inches) *';
         micronHint.textContent = 'Enter single integer >= 10 (e.g., 60)';
     } else {
         widthField.style.display = 'none';
         lengthField.style.display = 'none';
-        bagFields.style.display = 'none';
         rollFields.style.display = 'none';
-        unitField.style.display = 'none';
         micronHint.textContent = 'Enter single or double (e.g., 60 or 60/120)';
     }
     validateMicron();
@@ -250,36 +196,7 @@ function toggleDimensions() {
     validateWeight();
 }
 
-function updateDimensionLabels() {
-    const unit = document.getElementById('dimensionUnit').value;
-    const unitLabel = unit === 'inch' ? 'inches' : 'cm';
-    const extraUnit = document.getElementById('bagExtraUnit').value;
-    const extraUnitLabel = extraUnit === 'inch' ? 'inches' : 'cm';
-    
-    const widthLabel = document.getElementById('widthField').querySelector('label');
-    const lengthLabel = document.getElementById('lengthField').querySelector('label');
-    const gussetLabel = document.querySelector('label[for="gusset"]') || document.querySelector('input[name="gusset"]').previousElementSibling;
-    const flapLabel = document.querySelector('label[for="flap"]') || document.querySelector('input[name="flap"]').previousElementSibling;
-    
-    if (widthLabel) widthLabel.textContent = `Width (${unitLabel}) *`;
-    if (lengthLabel) lengthLabel.textContent = `Length (${unitLabel}) *`;
-    if (gussetLabel) gussetLabel.textContent = `Gusset (${extraUnitLabel})`;
-    if (flapLabel) flapLabel.textContent = `Flap (${extraUnitLabel})`;
-}
-
-// Add event listeners for unit changes
 document.addEventListener('DOMContentLoaded', function() {
-    const dimensionUnit = document.getElementById('dimensionUnit');
-    const bagExtraUnit = document.getElementById('bagExtraUnit');
-    
-    if (dimensionUnit) {
-        dimensionUnit.addEventListener('change', updateDimensionLabels);
-    }
-    if (bagExtraUnit) {
-        bagExtraUnit.addEventListener('change', updateDimensionLabels);
-    }
-    
-    // Add validation on input
     const micronInput = document.getElementById('micronInput');
     const widthInput = document.getElementById('widthField')?.querySelector('input');
     const weightInput = document.querySelector('input[name="weight"]');
@@ -343,18 +260,6 @@ function validateMicron() {
         } else {
             message = 'Roll micron must be in format x/y (e.g., 40/80)';
         }
-    } else if (type === 'bag') {
-        // Bag: single integer > 0 (existing behavior)
-        if (!value.includes('/') && /^\d+$/.test(value)) {
-            const num = parseInt(value, 10);
-            if (num > 0) {
-                isValid = true;
-            } else {
-                message = 'Bag micron must be greater than 0';
-            }
-        } else {
-            message = 'Bag micron must be a single integer';
-        }
     } else {
         // No type selected yet - allow any format
         isValid = true;
@@ -363,7 +268,7 @@ function validateMicron() {
     if (isValid) {
         micronInput.classList.add('border-green-500');
         micronInput.classList.remove('border-red-500');
-        micronHint.textContent = message || (type === 'sheet' ? 'Enter single integer >= 10 (e.g., 60)' : type === 'roll' ? 'Enter format x/y where y = 2*x (e.g., 40/80). Both must be >= 10.' : 'Enter single integer (e.g., 60)');
+        micronHint.textContent = message || (type === 'sheet' ? 'Enter single integer >= 10 (e.g., 60)' : type === 'roll' ? 'Enter format x/y where y = 2*x (e.g., 40/80). Both must be >= 10.' : 'Enter single or double (e.g., 60 or 60/120)');
         micronHint.classList.remove('text-red-500');
         micronHint.classList.add('text-green-500');
     } else {
@@ -501,14 +406,12 @@ function togglePrintedFields() {
 }
 
 // Form submission validation
-document.getElementById('stockInForm').addEventListener('submit', function(e) {
+document.getElementById('directUsageForm').addEventListener('submit', function(e) {
     if (!validateMicron() || !validateWidth() || !validateWeight()) {
         e.preventDefault();
         alert('Please fix the validation errors before submitting.');
         return false;
     }
-    // Quantity is always 1, no need to validate quantity field
 });
 </script>
-
 {% endblock %}

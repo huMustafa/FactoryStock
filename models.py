@@ -167,7 +167,7 @@ class Transaction(db.Model):
     __tablename__ = 'transactions'
     
     id = db.Column(db.Integer, primary_key=True)
-    transaction_type = db.Column(db.String(10), nullable=False)  # 'IN', 'OUT', 'RETURN'
+    transaction_type = db.Column(db.String(20), nullable=False)  # 'IN', 'OUT', 'RETURN', 'DIRECT_USAGE'
     item_type = db.Column(db.String(20), nullable=False)
     material = db.Column(db.String(20), nullable=False)
     width_inches = db.Column(db.Float, nullable=True)
@@ -189,6 +189,9 @@ class Transaction(db.Model):
     gusset_type = db.Column(db.String(20), nullable=True)  # '1-side', '2-side'
     gusset_length_inches = db.Column(db.Float, nullable=True)
     color = db.Column(db.String(50), nullable=True)
+    
+    # Direct Usage specific
+    given_to = db.Column(db.String(100), nullable=True)  # Person name for direct usage
     
     request_id = db.Column(db.Integer, db.ForeignKey('requests.id'), nullable=True)
     original_transaction_id = db.Column(db.Integer, nullable=True)

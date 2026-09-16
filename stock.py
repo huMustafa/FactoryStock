@@ -207,6 +207,13 @@ def stock_in():
             zones = Zone.query.order_by(Zone.code).all()
             return render_template('stock_in.html', zones=zones)
         
+        # Validate width and weight constraints for roll and sheet
+        constraint_error = validate_stock_in_constraints(item_type, width, weight)
+        if constraint_error:
+            flash(constraint_error, 'error')
+            zones = Zone.query.order_by(Zone.code).all()
+            return render_template('stock_in.html', zones=zones)
+        
         # Find or create item
         item = Item.query.filter_by(
             item_type=item_type,
@@ -288,22 +295,125 @@ def stock_in():
     return render_template('stock_in.html', zones=zones)
 
 
+@stock_bp.route('/direct-usage', methods=['GET', 'POST'])
+@login_required
+def direct_usage():
+    """Log direct usage (pre-stock consumption) of rolls/sheets before they reach warehouse"""
+    if current_user.role != 'store_keeper':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
+    if request.method == 'POST':
+        # Get and validate form data
+        material = sanitize_input(request.form.get('material', ''), 20)
+        item_type = sanitize_input(request.form.get('type', ''), 20)
+        width = validate_float(request.form.get('width', 0), 0, 10000)
+        length = validate_float(request.form.get('length', 0), 0, 10000)
+        micron_label = sanitize_input(request.form.get('micron', ''), 20)
+        weight = validate_float(request.form.get('weight'), 0.01, 100000)
+        given_to = sanitize_input(request.form.get('given_to', ''), 100)
+        notes = sanitize_input(request.form.get('notes', ''), 500)
+        date_used = datetime.now().date()
+        
+        # Roll-specific fields
+        has_gusset = request.form.get('has_gusset') == 'on'
+        gusset_type = sanitize_input(request.form.get('gusset_type', ''), 20) if has_gusset else None
+        gusset_length_inches = validate_float(request.form.get('gusset_length'), 0, 10000) if has_gusset else None
+        color = sanitize_input(request.form.get('color', ''), 50)
+        
+        # Printed fields
+        is_printed = request.form.get('printed') == 'on'
+        print_details = sanitize_input(request.form.get('print_details', ''), 200) if is_printed else None
+        buyer_name = sanitize_input(request.form.get('buyer', ''), 100) if is_printed else None
+        
+        # Quantity is always 1 piece for direct usage
+        quantity = 1.0
+        
+        # Validate required fields
+        if not all([material, item_type, micron_label, weight is not None, given_to]):
+            flash('All required fields must be filled', 'error')
+            return render_template('direct_usage.html')
+        
+        if item_type not in ['roll', 'sheet']:
+            flash('Direct usage only applies to rolls and sheets', 'error')
+            return render_template('direct_usage.html')
+        
+        if material not in ['PE', 'HDPE', 'PP', 'PE - Recycle', 'HDPE - Recycle']:
+            flash('Invalid material', 'error')
+            return render_template('direct_usage.html')
+        
+        # Validate dimensions based on item type
+        if item_type in ['roll', 'sheet'] and width <= 0:
+            flash('Width is required for rolls and sheets', 'error')
+            return render_template('direct_usage.html')
+        
+        # Validate micron format
+        micron_error = validate_micron(micron_label, item_type)
+        if micron_error:
+            flash(micron_error, 'error')
+            return render_template('direct_usage.html')
+        
+        # Validate width and weight constraints
+        constraint_error = validate_stock_in_constraints(item_type, width, weight)
+        if constraint_error:
+            flash(constraint_error, 'error')
+            return render_template('direct_usage.html')
+        
+        # Log transaction as DIRECT_USAGE (does NOT create Stock record)
+        transaction = Transaction(
+            transaction_type='DIRECT_USAGE',
+            item_type=item_type,
+            material=material,
+            width_inches=width,
+            length_inches=length,
+            micron_label=micron_label,
+            is_printed=is_printed,
+            buyer_name=buyer_name,
+            zone_code=None,
+            quantity_pieces=quantity,
+            quantity_kg=weight,
+            user_id=current_user.id,
+            notes=notes,
+            gusset_inches=None,
+            flap_inches=None,
+            brand_name=None,
+            handle_type=None,
+            gusset_type=gusset_type if item_type == 'roll' else None,
+            gusset_length_inches=gusset_length_inches if item_type == 'roll' else None,
+            color=color if item_type == 'roll' else None,
+            given_to=given_to
+        )
+        db.session.add(transaction)
+        
+        db.session.commit()
+        
+        # Audit log
+        current_app.log_audit('transactions', transaction.id, 'INSERT', 
+                             None, {'type': 'DIRECT_USAGE', 'weight': weight, 'given_to': given_to})
+        
+        flash('Direct usage logged successfully', 'success')
+        return redirect(url_for('stock.direct_usage'))
+    
+    # GET request - show form
+    return render_template('direct_usage.html')
+
+
 def validate_micron(micron_label, item_type):
     """Validate micron format based on item type"""
     import re
     
     if item_type == 'sheet':
-        # Sheet: single integer > 20, no slash
+        # Sheet: single integer >= 10, no slash
         if '/' in micron_label:
             return 'Sheet micron must be a single integer (no "/")'
         if not re.match(r'^\d+$', micron_label):
             return 'Sheet micron must be a single integer'
         value = int(micron_label)
-        if value <= 20:
-            return 'Sheet micron must be greater than 20'
+        if value < 10:
+            return 'Sheet micron must be at least 10'
     
     elif item_type == 'roll':
-        # Roll: format x/y, both > 20, y = 2*x
+        # Roll: format x/y, both >= 10, y = 2*x
         if '/' not in micron_label:
             return 'Roll micron must be in format x/y (e.g., 40/80)'
         parts = micron_label.split('/')
@@ -313,8 +423,8 @@ def validate_micron(micron_label, item_type):
             return 'Roll micron values must be integers'
         x = int(parts[0])
         y = int(parts[1])
-        if x <= 20 or y <= 20:
-            return 'Both micron values must be greater than 20'
+        if x < 10 or y < 10:
+            return 'Both micron values must be at least 10'
         if y != 2 * x:
             return 'Second value must be exactly double the first (e.g., 40/80)'
     
@@ -328,6 +438,16 @@ def validate_micron(micron_label, item_type):
         if value <= 0:
             return 'Bag micron must be greater than 0'
     
+    return None
+
+
+def validate_stock_in_constraints(item_type, width, weight):
+    """Validate width and weight constraints for roll and sheet"""
+    if item_type in ['roll', 'sheet']:
+        if width is not None and width > 150:
+            return 'Width cannot exceed 150 inches for rolls and sheets'
+        if weight is not None and weight > 60:
+            return 'Weight per piece cannot exceed 60 kg for rolls and sheets'
     return None
 
 @stock_bp.route('/audit')
@@ -383,19 +503,23 @@ def usage_report():
     else:
         selected_date = datetime.now().date()
     
-    # Query OUT transactions for the selected date using date range (handles timezone issues)
+    # Query OUT and DIRECT_USAGE transactions for the selected date using date range (handles timezone issues)
     start_of_day = datetime.combine(selected_date, time.min)
     end_of_day = datetime.combine(selected_date, time.max)
     
     transactions = Transaction.query.filter(
-        Transaction.transaction_type == 'OUT',
+        Transaction.transaction_type.in_(['OUT', 'DIRECT_USAGE']),
         Transaction.executed_at >= start_of_day,
         Transaction.executed_at <= end_of_day
     ).all()
     
-    # --- Supervisor Usage ---
+    # Separate OUT and DIRECT_USAGE transactions
+    out_transactions = [tx for tx in transactions if tx.transaction_type == 'OUT']
+    direct_usage_transactions = [tx for tx in transactions if tx.transaction_type == 'DIRECT_USAGE']
+    
+    # --- Supervisor Usage (from OUT transactions only) ---
     supervisor_data = {}
-    for tx in transactions:
+    for tx in out_transactions:
         user = User.query.get(tx.user_id)
         if user and user.role == 'supervisor':
             username = user.username
@@ -418,9 +542,9 @@ def usage_report():
             'transaction_count': data['transaction_count']
         })
     
-    # --- Receiver Usage ---
+    # --- Receiver Usage (from OUT transactions only) ---
     receiver_data = {}
-    for tx in transactions:
+    for tx in out_transactions:
         receiver = None
         if tx.notes:
             if 'Given to:' in tx.notes:
@@ -443,6 +567,53 @@ def usage_report():
             'total_kg': data['total_kg'],
             'transaction_count': data['transaction_count']
         })
+    
+    # --- Direct Usage (Pre-Stock) ---
+    direct_usage_data = {}
+    for tx in direct_usage_transactions:
+        # Extract person name from given_to field (new) or notes (legacy)
+        person_name = tx.given_to
+        if not person_name and tx.notes:
+            if 'Machine/Line:' in tx.notes:
+                try:
+                    person_name = tx.notes.split('Machine/Line:')[-1].split('.')[0].strip()
+                except:
+                    pass
+            elif 'Given to:' in tx.notes:
+                try:
+                    person_name = tx.notes.split('Given to:')[-1].split('.')[0].strip()
+                except:
+                    pass
+        
+        if not person_name:
+            person_name = 'Unknown'
+        
+        # Build display info with additional fields
+        display_info = {
+            'person_name': person_name,
+            'has_gusset': tx.gusset_type is not None,
+            'gusset_type': tx.gusset_type,
+            'is_printed': tx.is_printed,
+            'color': tx.color
+        }
+        
+        if person_name not in direct_usage_data:
+            direct_usage_data[person_name] = {'total_kg': 0.0, 'transaction_count': 0, 'display_info': display_info}
+        direct_usage_data[person_name]['total_kg'] += float(tx.quantity_kg or 0)
+        direct_usage_data[person_name]['transaction_count'] += 1
+    
+    # Build direct usage result list
+    direct_usage_result = []
+    for person, data in sorted(direct_usage_data.items()):
+        direct_usage_result.append({
+            'person_name': person,
+            'total_kg': data['total_kg'],
+            'transaction_count': data['transaction_count'],
+            'display_info': data['display_info']
+        })
+    
+    # Sort by total kg descending
+    direct_usage_result.sort(key=lambda x: x['total_kg'], reverse=True)
     
     # --- Merge matching supervisor and receiver entries ---
     def normalize_name(name: str) -> str:
@@ -510,13 +681,15 @@ def usage_report():
     merged_supervisor_result.sort(key=lambda x: x['total_kg'], reverse=True)
     unmatched_receiver_result.sort(key=lambda x: x['total_kg'], reverse=True)
     
-    # Combined totals
+    # Combined totals (supervisor + receiver + direct usage)
     supervisor_total_kg = sum(r['total_kg'] for r in merged_supervisor_result)
     receiver_total_kg = sum(r['total_kg'] for r in unmatched_receiver_result)
-    combined_total_kg = supervisor_total_kg + receiver_total_kg
+    direct_usage_total_kg = sum(r['total_kg'] for r in direct_usage_result)
+    combined_total_kg = supervisor_total_kg + receiver_total_kg + direct_usage_total_kg
     supervisor_tx_count = sum(r['transaction_count'] for r in merged_supervisor_result)
     receiver_tx_count = sum(r['transaction_count'] for r in unmatched_receiver_result)
-    combined_tx_count = supervisor_tx_count + receiver_tx_count
+    direct_usage_tx_count = sum(r['transaction_count'] for r in direct_usage_result)
+    combined_tx_count = supervisor_tx_count + receiver_tx_count + direct_usage_tx_count
     
     return render_template('usage_report.html',
                          selected_date=selected_date,
@@ -524,11 +697,14 @@ def usage_report():
                          next_date=selected_date + timedelta(days=1),
                          supervisor_usage=merged_supervisor_result,
                          receiver_usage=unmatched_receiver_result,
+                         direct_usage=direct_usage_result,
                          supervisor_total_kg=supervisor_total_kg,
                          receiver_total_kg=receiver_total_kg,
+                         direct_usage_total_kg=direct_usage_total_kg,
                          combined_total_kg=combined_total_kg,
                          supervisor_tx_count=supervisor_tx_count,
                          receiver_tx_count=receiver_tx_count,
+                         direct_usage_tx_count=direct_usage_tx_count,
                          combined_tx_count=combined_tx_count)
 
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
