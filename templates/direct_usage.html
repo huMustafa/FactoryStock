@@ -22,8 +22,9 @@
                     <select name="type" id="itemType" required onchange="toggleDimensions()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         <option value="">Select type...</option>
-                        <option value="roll">Roll</option>
-                        <option value="sheet">Sheet</option>
+                        {% for value, label in item_types %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div>
@@ -31,11 +32,9 @@
                     <select name="material" required
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         <option value="">Select material...</option>
-                        <option value="PE">PE</option>
-                        <option value="HDPE">HDPE</option>
-                        <option value="PP">PP</option>
-                        <option value="PE - Recycle">PE - Recycle</option>
-                        <option value="HDPE - Recycle">HDPE - Recycle</option>
+                        {% for mat in materials %}
+                        <option value="{{ mat }}">{{ mat }}</option>
+                        {% endfor %}
                     </select>
                 </div>
             </div>
@@ -148,9 +147,10 @@
             
             <!-- Actions -->
             <div class="flex gap-4 pt-4 border-t">
-                <button type="submit"
-                        class="flex-1 bg-orange-600 text-white py-3 px-6 rounded-lg hover:bg-orange-700 font-medium transition-colors">
-                    <i class="fas fa-save mr-2"></i>Log Direct Usage
+                <button type="submit" id="completeBtn"
+                        class="flex-1 bg-orange-600 text-white py-3 px-6 rounded-lg hover:bg-orange-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled>
+                    <i class="fas fa-check mr-2"></i>Complete / Done
                 </button>
                 <a href="{{ url_for('stock.stock_directory') }}"
                    class="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium transition-colors">
@@ -412,6 +412,55 @@ document.getElementById('directUsageForm').addEventListener('submit', function(e
         alert('Please fix the validation errors before submitting.');
         return false;
     }
+});
+
+// Complete/Done button validation - enable only when all required fields are filled
+document.addEventListener('DOMContentLoaded', function() {
+    const completeBtn = document.getElementById('completeBtn');
+    const requiredFields = [
+        document.getElementById('itemType'),
+        document.querySelector('select[name="material"]'),
+        document.querySelector('input[name="width"]'),
+        document.getElementById('micronInput'),
+        document.querySelector('input[name="weight"]'),
+        document.querySelector('input[name="given_to"]'),
+    ];
+
+    function checkFormValidity() {
+        let allFilled = true;
+        
+        requiredFields.forEach(field => {
+            if (!field || !field.value || field.value.trim() === '') {
+                allFilled = false;
+            }
+            // For selects, also check if it's not the default "Select..." option
+            if (field.tagName === 'SELECT' && field.value === '') {
+                allFilled = false;
+            }
+        });
+        
+        // Also check that micron format is valid (not just filled)
+        if (allFilled) {
+            const micronValid = validateMicron();
+            const widthValid = validateWidth();
+            const weightValid = validateWeight();
+            allFilled = micronValid && widthValid && weightValid;
+        }
+        
+        completeBtn.disabled = !allFilled;
+    }
+
+    // Check on input/change for all required fields
+    requiredFields.forEach(field => {
+        if (field) {
+            field.addEventListener('input', checkFormValidity);
+            field.addEventListener('change', checkFormValidity);
+            field.addEventListener('blur', checkFormValidity);
+        }
+    });
+    
+    // Initial check
+    checkFormValidity();
 });
 </script>
 {% endblock %}
