@@ -22,9 +22,9 @@
                     <select name="type" id="itemType" required onchange="toggleDimensions()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         <option value="">Select type...</option>
-                        <option value="roll">Roll</option>
-                        <option value="sheet">Sheet</option>
-                        <option value="bag">Bag</option>
+                        {% for value, label in item_types %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div>
@@ -32,11 +32,9 @@
                     <select name="material" required
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         <option value="">Select material...</option>
-                        <option value="PE">PE</option>
-                        <option value="HDPE">HDPE</option>
-                        <option value="PP">PP</option>
-                        <option value="PE - Recycle">PE - Recycle</option>
-                        <option value="HDPE - Recycle">HDPE - Recycle</option>
+                        {% for mat in materials %}
+                        <option value="{{ mat }}">{{ mat }}</option>
+                        {% endfor %}
                     </select>
                 </div>
             </div>

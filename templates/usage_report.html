@@ -9,7 +9,7 @@
             <i class="fas fa-chart-bar text-indigo-600"></i>
             Daily Usage Report
         </h1>
-        <p class="text-gray-600 mt-1">Combined supervisor and receiver usage for {{ selected_date|format_date }}</p>
+        <p class="text-gray-600 mt-1">All stock out records for {{ selected_date|format_date }}</p>
     </div>
     
     <!-- Date Navigation -->
@@ -43,130 +43,28 @@
         </a>
     </div>
     
-    <!-- Combined Summary Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div class="bg-white rounded-lg shadow p-6 border-l-4 border-indigo-600">
-            <p class="text-sm text-gray-500">Total Supervisors</p>
-            <p class="text-3xl font-bold text-gray-900">{{ supervisor_usage|length }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 border-l-4 border-purple-600">
-            <p class="text-sm text-gray-500">Total Receivers</p>
-            <p class="text-3xl font-bold text-gray-900">{{ receiver_usage|length }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 border-l-4 border-orange-600">
-            <p class="text-sm text-gray-500">Direct Usage Lines</p>
-            <p class="text-3xl font-bold text-gray-900">{{ direct_usage|length }}</p>
+            <p class="text-sm text-gray-500">Total Records</p>
+            <p class="text-3xl font-bold text-gray-900">{{ combined_tx_count }}</p>
         </div>
         <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-600">
-            <p class="text-sm text-gray-500">Total Transactions</p>
-            <p class="text-3xl font-bold text-gray-900">{{ supervisor_tx_count + receiver_tx_count + direct_usage_tx_count }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 border-l-4 border-blue-600">
-            <p class="text-sm text-gray-500">Combined Total Weight</p>
+            <p class="text-sm text-gray-500">Total Weight</p>
             <p class="text-3xl font-bold text-gray-900">{{ "%.2f"|format(combined_total_kg) }} kg</p>
         </div>
-    </div>
-    
-    <!-- Supervisor Usage Section -->
-    <div class="bg-white rounded-lg shadow mb-6">
-        <div class="bg-blue-50 border-b border-blue-200 px-6 py-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <i class="fas fa-chart-bar text-blue-600 text-2xl"></i>
-                <h2 class="text-xl font-bold text-gray-900">Supervisor Usage (Stock Taken)</h2>
-            </div>
-            <div class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                {{ "%.2f"|format(supervisor_total_kg) }} kg
-            </div>
-        </div>
-        
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead class="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supervisor</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Weight (kg)</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Supervisor Total</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Combined Total</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    {% for usage in supervisor_usage %}
-                    <tr class="hover:bg-gray-50 {% if usage.total_kg == 0 %}bg-gray-50{% endif %}">
-                        <td class="px-6 py-4 text-sm text-gray-500">{{ loop.index }}</td>
-                        <td class="px-6 py-4">
-                            <div class="text-sm font-medium text-gray-900">{{ usage.username }}</div>
-                            {% if usage.total_kg == 0 %}
-                            <span class="text-xs text-gray-400">No activity today</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            <span class="text-sm font-medium {% if usage.transaction_count == 0 %}text-gray-400{% else %}text-gray-900{% endif %}">
-                                {{ usage.transaction_count }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            <span class="text-lg font-semibold {% if usage.total_kg == 0 %}text-gray-400{% else %}text-blue-600{% endif %}">
-                                {{ "%.2f"|format(usage.total_kg) }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            {% if supervisor_total_kg > 0 %}
-                            <span class="text-sm font-medium text-green-600">
-                                {{ "%.1f"|format((usage.total_kg / supervisor_total_kg) * 100) }}%
-                            </span>
-                            {% else %}
-                            <span class="text-sm text-gray-400">-</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            {% if combined_total_kg > 0 %}
-                            <span class="text-sm font-medium text-purple-600">
-                                {{ "%.1f"|format((usage.total_kg / combined_total_kg) * 100) }}%
-                            </span>
-                            {% else %}
-                            <span class="text-sm text-gray-400">-</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="px-6 py-12 text-center text-gray-500">
-                            <i class="fas fa-users text-4xl mb-3 text-gray-300"></i>
-                            <p>No supervisors found</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-                <tfoot class="bg-gray-50 border-t border-gray-200">
-                    <tr>
-                        <td colspan="2" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Supervisor Total</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-gray-900">{{ supervisor_tx_count }}</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-blue-600">{{ "%.2f"|format(supervisor_total_kg) }}</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-green-600">100%</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-purple-600">
-                            {% if combined_total_kg > 0 %}
-                            {{ "%.1f"|format((supervisor_total_kg / combined_total_kg) * 100) }}%
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                    </tr>
-                </tfoot>
-            </table>
+        <div class="bg-white rounded-lg shadow p-6 border-l-4 border-blue-600">
+            <p class="text-sm text-gray-500">Date</p>
+            <p class="text-2xl font-bold text-gray-900">{{ selected_date|format_date }}</p>
         </div>
     </div>
     
-    <!-- Receiver Usage Section -->
+    <!-- Consolidated Usage Records Table -->
     <div class="bg-white rounded-lg shadow">
-        <div class="bg-purple-50 border-b border-purple-200 px-6 py-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <i class="fas fa-user-tag text-purple-600 text-2xl"></i>
-                <h2 class="text-xl font-bold text-gray-900">Receiver Usage (Stock Given Out)</h2>
-            </div>
-            <div class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                {{ "%.2f"|format(receiver_total_kg) }} kg
+        <div class="bg-gray-50 border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+            <h2 class="text-xl font-bold text-gray-900">Usage Records (Newest First)</h2>
+            <div class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                {{ "%.2f"|format(combined_total_kg) }} kg total
             </div>
         </div>
         
@@ -175,221 +73,58 @@
                 <thead class="bg-gray-50 border-b border-gray-200">
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receiver Name</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Weight (kg)</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Receiver Total</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Combined Total</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Weight (kg)</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200">
-                    {% for usage in receiver_usage %}
+                    {% for record in usage_records %}
                     <tr class="hover:bg-gray-50">
                         <td class="px-6 py-4 text-sm text-gray-500">{{ loop.index }}</td>
                         <td class="px-6 py-4">
-                            <div class="text-sm font-medium text-gray-900">{{ usage.receiver }}</div>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            <span class="text-sm font-medium text-gray-900">
-                                {{ usage.transaction_count }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            <span class="text-lg font-semibold text-purple-600">
-                                {{ "%.2f"|format(usage.total_kg) }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            {% if receiver_total_kg > 0 %}
-                            <span class="text-sm font-medium text-green-600">
-                                {{ "%.1f"|format((usage.total_kg / receiver_total_kg) * 100) }}%
-                            </span>
-                            {% else %}
-                            <span class="text-sm text-gray-400">-</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            {% if combined_total_kg > 0 %}
-                            <span class="text-sm font-medium text-purple-600">
-                                {{ "%.1f"|format((usage.total_kg / combined_total_kg) * 100) }}%
-                            </span>
-                            {% else %}
-                            <span class="text-sm text-gray-400">-</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="px-6 py-12 text-center text-gray-500">
-                            <i class="fas fa-user-tag text-4xl mb-3 text-gray-300"></i>
-                            <p>No stock outs recorded for {{ selected_date|format_date }}</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-                <tfoot class="bg-gray-50 border-t border-gray-200">
-                    <tr>
-                        <td colspan="2" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Receiver Total</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-gray-900">{{ receiver_tx_count }}</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-purple-600">{{ "%.2f"|format(receiver_total_kg) }}</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-green-600">100%</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-purple-600">
-                            {% if combined_total_kg > 0 %}
-                            {{ "%.1f"|format((receiver_total_kg / combined_total_kg) * 100) }}%
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-    </div>
-    
-    <!-- Direct Usage (Pre-Stock) Section -->
-    <div class="bg-white rounded-lg shadow mb-6">
-        <div class="bg-orange-50 border-b border-orange-200 px-6 py-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <i class="fas fa-industry text-orange-600 text-2xl"></i>
-                <h2 class="text-xl font-bold text-gray-900">Direct Usage (Pre-Stock Consumption)</h2>
-            </div>
-            <div class="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                {{ "%.2f"|format(direct_usage_total_kg) }} kg
-            </div>
-        </div>
-        
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead class="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Given To (Person)</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gusset</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Printed</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Weight (kg)</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Direct Usage Total</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% of Combined Total</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    {% for usage in direct_usage %}
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-6 py-4 text-sm text-gray-500">{{ loop.index }}</td>
-                        <td class="px-6 py-4">
-                            <div class="text-sm font-medium text-gray-900">{{ usage.person_name }}</div>
+                            <div class="text-sm font-medium text-gray-900">{{ record.name }}</div>
                         </td>
                         <td class="px-6 py-4">
-                            {% if usage.display_info.has_gusset %}
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <i class="fas fa-check mr-1"></i>{{ usage.display_info.gusset_type or 'Yes' }}
-                            </span>
-                            {% else %}
-                            <span class="text-gray-400 text-sm">-</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4">
-                            {% if usage.display_info.is_printed %}
+                            {% if record.source == 'supervisor' %}
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                <i class="fas fa-print mr-1"></i>Yes
+                                <i class="fas fa-user-tie mr-1"></i>Supervisor
                             </span>
-                            {% else %}
-                            <span class="text-gray-400 text-sm">-</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4">
-                            {% if usage.display_info.color %}
+                            {% elif record.source == 'receiver' %}
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                <i class="fas fa-palette mr-1"></i>{{ usage.display_info.color }}
+                                <i class="fas fa-user-tag mr-1"></i>Receiver
                             </span>
                             {% else %}
-                            <span class="text-gray-400 text-sm">-</span>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                <i class="fas fa-industry mr-1"></i>Direct Usage
+                            </span>
                             {% endif %}
                         </td>
                         <td class="px-6 py-4 text-right">
-                            <span class="text-sm font-medium text-gray-900">
-                                {{ usage.transaction_count }}
-                            </span>
+                            <span class="text-lg font-semibold text-gray-900">{{ "%.2f"|format(record.total_kg) }}</span>
                         </td>
-                        <td class="px-6 py-4 text-right">
-                            <span class="text-lg font-semibold text-orange-600">
-                                {{ "%.2f"|format(usage.total_kg) }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            {% if direct_usage_total_kg > 0 %}
-                            <span class="text-sm font-medium text-green-600">
-                                {{ "%.1f"|format((usage.total_kg / direct_usage_total_kg) * 100) }}%
-                            </span>
-                            {% else %}
-                            <span class="text-sm text-gray-400">-</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            {% if combined_total_kg > 0 %}
-                            <span class="text-sm font-medium text-purple-600">
-                                {{ "%.1f"|format((usage.total_kg / combined_total_kg) * 100) }}%
-                            </span>
-                            {% else %}
-                            <span class="text-sm text-gray-400">-</span>
-                            {% endif %}
+                        <td class="px-6 py-4 text-sm text-gray-500">
+                            {{ record.executed_at|format_date }} {{ record.executed_at.strftime('%H:%M') }}
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="9" class="px-6 py-12 text-center text-gray-500">
-                            <i class="fas fa-industry text-4xl mb-3 text-gray-300"></i>
-                            <p>No direct usage recorded for {{ selected_date|format_date }}</p>
+                        <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                            <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
+                            <p>No usage recorded for {{ selected_date|format_date }}</p>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
                 <tfoot class="bg-gray-50 border-t border-gray-200">
                     <tr>
-                        <td colspan="5" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Direct Usage Total</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-gray-900">{{ direct_usage_tx_count }}</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-orange-600">{{ "%.2f"|format(direct_usage_total_kg) }}</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-green-600">100%</td>
-                        <td class="px-6 py-3 text-right text-lg font-bold text-purple-600">
-                            {% if combined_total_kg > 0 %}
-                            {{ "%.1f"|format((direct_usage_total_kg / combined_total_kg) * 100) }}%
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
+                        <td colspan="3" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Grand Total</td>
+                        <td class="px-6 py-3 text-right text-lg font-bold text-indigo-600">{{ "%.2f"|format(combined_total_kg) }}</td>
+                        <td class="px-6 py-3 text-right text-lg font-bold text-gray-900">{{ combined_tx_count }} records</td>
                     </tr>
                 </tfoot>
             </table>
-        </div>
-    </div>
-    
-    <!-- Combined Summary Footer -->
-    <div class="bg-indigo-50 rounded-lg shadow p-6">
-        <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-bold text-indigo-800">Combined Daily Total</h3>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
-            <div class="bg-white rounded-lg p-4 border-l-4 border-blue-600">
-                <p class="text-sm text-gray-500">Supervisor Total</p>
-                <p class="text-2xl font-bold text-blue-600">{{ "%.2f"|format(supervisor_total_kg) }} kg</p>
-                <p class="text-sm text-gray-500">{{ supervisor_tx_count }} transactions</p>
-            </div>
-            <div class="bg-white rounded-lg p-4 border-l-4 border-purple-600">
-                <p class="text-sm text-gray-500">Receiver Total</p>
-                <p class="text-2xl font-bold text-purple-600">{{ "%.2f"|format(receiver_total_kg) }} kg</p>
-                <p class="text-sm text-gray-500">{{ receiver_tx_count }} transactions</p>
-            </div>
-            <div class="bg-white rounded-lg p-4 border-l-4 border-orange-600">
-                <p class="text-sm text-gray-500">Direct Usage Total</p>
-                <p class="text-2xl font-bold text-orange-600">{{ "%.2f"|format(direct_usage_total_kg) }} kg</p>
-                <p class="text-sm text-gray-500">{{ direct_usage_tx_count }} transactions</p>
-            </div>
-            <div class="bg-white rounded-lg p-4 border-l-4 border-indigo-600">
-                <p class="text-sm text-gray-500">Combined Total</p>
-                <p class="text-2xl font-bold text-indigo-600">{{ "%.2f"|format(combined_total_kg) }} kg</p>
-                <p class="text-sm text-gray-500">{{ supervisor_tx_count + receiver_tx_count + direct_usage_tx_count }} transactions</p>
-            </div>
         </div>
     </div>
 </div>

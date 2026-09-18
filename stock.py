@@ -5,6 +5,7 @@ from models import db, Item, Stock, Transaction, Zone, User
 from datetime import datetime
 from sqlalchemy import or_, func
 import re
+from constants import MATERIALS, ITEM_TYPES
 
 stock_bp = Blueprint('stock', __name__)
 
@@ -85,7 +86,7 @@ def stock_directory():
     stocks = query.order_by(Stock.date_received.desc()).all()
     
     # Get unique materials and types for filters
-    materials = db.session.query(Item.material).distinct().all()
+    # Use centralized constants for materials, DB query for types
     types = db.session.query(Item.item_type).distinct().all()
     
     # Calculate total stock weight (across all stock, regardless of filters)
@@ -106,7 +107,7 @@ def stock_directory():
     
     return render_template('dashboard.html', 
                          stocks=stocks, 
-                         materials=[m[0] for m in materials],
+                         materials=MATERIALS,
                          types=[t[0] for t in types],
                          selected_material=material,
                          selected_type=item_type,
@@ -292,7 +293,7 @@ def stock_in():
     
     # GET request - show form
     zones = Zone.query.order_by(Zone.code).all()
-    return render_template('stock_in.html', zones=zones)
+    return render_template('stock_in.html', zones=zones, materials=MATERIALS, item_types=ITEM_TYPES)
 
 
 @stock_bp.route('/direct-usage', methods=['GET', 'POST'])
@@ -395,7 +396,7 @@ def direct_usage():
         return redirect(url_for('stock.direct_usage'))
     
     # GET request - show form
-    return render_template('direct_usage.html')
+    return render_template('direct_usage.html', materials=MATERIALS, item_types=ITEM_TYPES)
 
 
 def validate_micron(micron_label, item_type):
@@ -511,200 +512,81 @@ def usage_report():
         Transaction.transaction_type.in_(['OUT', 'DIRECT_USAGE']),
         Transaction.executed_at >= start_of_day,
         Transaction.executed_at <= end_of_day
-    ).all()
+    ).order_by(Transaction.executed_at.desc()).all()
     
-    # Separate OUT and DIRECT_USAGE transactions
-    out_transactions = [tx for tx in transactions if tx.transaction_type == 'OUT']
-    direct_usage_transactions = [tx for tx in transactions if tx.transaction_type == 'DIRECT_USAGE']
+    # Build a single flat list of all usage records
+    # Each record: { name, total_kg, transaction_type, executed_at }
+    usage_records = []
     
-    # --- Supervisor Usage (from OUT transactions only) ---
-    supervisor_data = {}
-    for tx in out_transactions:
-        user = User.query.get(tx.user_id)
-        if user and user.role == 'supervisor':
-            username = user.username
-            if username not in supervisor_data:
-                supervisor_data[username] = {'total_kg': 0.0, 'transaction_count': 0}
-            supervisor_data[username]['total_kg'] += float(tx.quantity_kg or 0)
-            supervisor_data[username]['transaction_count'] += 1
-    
-    # Get all supervisors for those with 0 usage
-    all_supervisors = User.query.filter_by(role='supervisor', is_active=True).all()
-    supervisor_dict = {s.username: s for s in all_supervisors}
-    
-    # Build supervisor result list
-    supervisor_result = []
-    for username in sorted(supervisor_dict.keys()):
-        data = supervisor_data.get(username, {'total_kg': 0.0, 'transaction_count': 0})
-        supervisor_result.append({
-            'username': username,
-            'total_kg': data['total_kg'],
-            'transaction_count': data['transaction_count']
-        })
-    
-    # --- Receiver Usage (from OUT transactions only) ---
-    receiver_data = {}
-    for tx in out_transactions:
-        receiver = None
-        if tx.notes:
-            if 'Given to:' in tx.notes:
-                receiver = tx.notes.split('Given to:')[-1].strip()
-            elif 'Handed to' in tx.notes:
-                receiver = tx.notes.split('Handed to')[-1].strip()
-        
-        if receiver:
-            normalized = receiver.strip().title()
-            if normalized not in receiver_data:
-                receiver_data[normalized] = {'display_name': receiver, 'total_kg': 0.0, 'transaction_count': 0}
-            receiver_data[normalized]['total_kg'] += float(tx.quantity_kg or 0)
-            receiver_data[normalized]['transaction_count'] += 1
-    
-    # Build receiver result list
-    receiver_result = []
-    for normalized, data in receiver_data.items():
-        receiver_result.append({
-            'receiver': data['display_name'],
-            'total_kg': data['total_kg'],
-            'transaction_count': data['transaction_count']
-        })
-    
-    # --- Direct Usage (Pre-Stock) ---
-    direct_usage_data = {}
-    for tx in direct_usage_transactions:
-        # Extract person name from given_to field (new) or notes (legacy)
-        person_name = tx.given_to
-        if not person_name and tx.notes:
-            if 'Machine/Line:' in tx.notes:
-                try:
-                    person_name = tx.notes.split('Machine/Line:')[-1].split('.')[0].strip()
-                except:
-                    pass
-            elif 'Given to:' in tx.notes:
-                try:
-                    person_name = tx.notes.split('Given to:')[-1].split('.')[0].strip()
-                except:
-                    pass
-        
-        if not person_name:
-            person_name = 'Unknown'
-        
-        # Build display info with additional fields
-        display_info = {
-            'person_name': person_name,
-            'has_gusset': tx.gusset_type is not None,
-            'gusset_type': tx.gusset_type,
-            'is_printed': tx.is_printed,
-            'color': tx.color
-        }
-        
-        if person_name not in direct_usage_data:
-            direct_usage_data[person_name] = {'total_kg': 0.0, 'transaction_count': 0, 'display_info': display_info}
-        direct_usage_data[person_name]['total_kg'] += float(tx.quantity_kg or 0)
-        direct_usage_data[person_name]['transaction_count'] += 1
-    
-    # Build direct usage result list
-    direct_usage_result = []
-    for person, data in sorted(direct_usage_data.items()):
-        direct_usage_result.append({
-            'person_name': person,
-            'total_kg': data['total_kg'],
-            'transaction_count': data['transaction_count'],
-            'display_info': data['display_info']
-        })
-    
-    # Sort by total kg descending
-    direct_usage_result.sort(key=lambda x: x['total_kg'], reverse=True)
-    
-    # --- Merge matching supervisor and receiver entries ---
-    def normalize_name(name: str) -> str:
-        """Strip, lower-case, remove leading honorifics (mr., mrs., ms., dr., eng.), collapse multiple spaces."""
-        if not name:
-            return ''
-        name = name.strip().lower()
-        # Remove common honorifics
-        for honorific in ['mr.', 'mrs.', 'ms.', 'dr.', 'eng.']:
-            if name.startswith(honorific):
-                name = name[len(honorific):].strip()
-        # Collapse multiple spaces
-        name = re.sub(r'\s+', ' ', name)
-        return name
-    
-    # --- Merge matching supervisor and receiver entries ---
-    # Create normalized lookup for receivers
-    receiver_lookup = {}
-    for r in receiver_result:
-        normalized = normalize_name(r['receiver'])
-        receiver_lookup[normalized] = r
-    
-    # Track which receivers have been merged
-    merged_receivers = set()
-    
-    # Merge matching entries
-    merged_supervisor_result = []
-    for sup in supervisor_result:
-        sup_norm = normalize_name(sup['username'])
-        matching_receiver = receiver_lookup.get(sup_norm)
-        
-        if matching_receiver:
-            # Match found - merge into single entry
-            merged_supervisor_result.append({
-                'username': sup['username'],
-                'total_kg': sup['total_kg'] + matching_receiver['total_kg'],
-                'transaction_count': sup['transaction_count'] + matching_receiver['transaction_count'],
-                'is_merged': True,
-                'receiver_name': matching_receiver['receiver']
+    for tx in transactions:
+        if tx.transaction_type == 'OUT':
+            # Determine if this is a supervisor or receiver
+            user = User.query.get(tx.user_id)
+            if user and user.role == 'supervisor':
+                # Supervisor usage
+                name = user.username
+                source = 'supervisor'
+            else:
+                # Receiver - extract from notes
+                receiver = None
+                if tx.notes:
+                    if 'Given to:' in tx.notes:
+                        receiver = tx.notes.split('Given to:')[-1].strip()
+                    elif 'Handed to' in tx.notes:
+                        receiver = tx.notes.split('Handed to')[-1].strip()
+                if receiver:
+                    name = receiver.strip().title()
+                    source = 'receiver'
+                else:
+                    continue  # Skip if no receiver found
+            
+            usage_records.append({
+                'name': name,
+                'total_kg': float(tx.quantity_kg or 0),
+                'source': source,
+                'executed_at': tx.executed_at,
+                'transaction_count': 1
             })
-            merged_receivers.add(normalize_name(matching_receiver['receiver']))
-        else:
-            # No match - keep as supervisor only
-            merged_supervisor_result.append({
-                'username': sup['username'],
-                'total_kg': sup['total_kg'],
-                'transaction_count': sup['transaction_count'],
-                'is_merged': False,
-                'receiver_name': None
+        
+        elif tx.transaction_type == 'DIRECT_USAGE':
+            # Direct usage - use given_to field
+            person_name = tx.given_to
+            if not person_name and tx.notes:
+                if 'Machine/Line:' in tx.notes:
+                    try:
+                        person_name = tx.notes.split('Machine/Line:')[-1].split('.')[0].strip()
+                    except:
+                        pass
+                elif 'Given to:' in tx.notes:
+                    try:
+                        person_name = tx.notes.split('Given to:')[-1].split('.')[0].strip()
+                    except:
+                        pass
+            
+            if not person_name:
+                person_name = 'Unknown'
+            
+            usage_records.append({
+                'name': person_name,
+                'total_kg': float(tx.quantity_kg or 0),
+                'source': 'direct_usage',
+                'executed_at': tx.executed_at,
+                'transaction_count': 1
             })
     
-    # Add receivers that didn't match any supervisor
-    unmatched_receiver_result = []
-    for rec in receiver_result:
-        rec_norm = normalize_name(rec['receiver'])
-        if rec_norm not in merged_receivers:
-            unmatched_receiver_result.append({
-                'receiver': rec['receiver'],
-                'total_kg': rec['total_kg'],
-                'transaction_count': rec['transaction_count'],
-                'is_merged': False
-            })
+    # Sort by executed_at descending (newest first)
+    usage_records.sort(key=lambda x: x['executed_at'], reverse=True)
     
-    # Sort both by total kg descending
-    merged_supervisor_result.sort(key=lambda x: x['total_kg'], reverse=True)
-    unmatched_receiver_result.sort(key=lambda x: x['total_kg'], reverse=True)
-    
-    # Combined totals (supervisor + receiver + direct usage)
-    supervisor_total_kg = sum(r['total_kg'] for r in merged_supervisor_result)
-    receiver_total_kg = sum(r['total_kg'] for r in unmatched_receiver_result)
-    direct_usage_total_kg = sum(r['total_kg'] for r in direct_usage_result)
-    combined_total_kg = supervisor_total_kg + receiver_total_kg + direct_usage_total_kg
-    supervisor_tx_count = sum(r['transaction_count'] for r in merged_supervisor_result)
-    receiver_tx_count = sum(r['transaction_count'] for r in unmatched_receiver_result)
-    direct_usage_tx_count = sum(r['transaction_count'] for r in direct_usage_result)
-    combined_tx_count = supervisor_tx_count + receiver_tx_count + direct_usage_tx_count
+    # Calculate totals
+    combined_total_kg = sum(r['total_kg'] for r in usage_records)
+    combined_tx_count = len(usage_records)
     
     return render_template('usage_report.html',
                          selected_date=selected_date,
                          prev_date=selected_date - timedelta(days=1),
                          next_date=selected_date + timedelta(days=1),
-                         supervisor_usage=merged_supervisor_result,
-                         receiver_usage=unmatched_receiver_result,
-                         direct_usage=direct_usage_result,
-                         supervisor_total_kg=supervisor_total_kg,
-                         receiver_total_kg=receiver_total_kg,
-                         direct_usage_total_kg=direct_usage_total_kg,
+                         usage_records=usage_records,
                          combined_total_kg=combined_total_kg,
-                         supervisor_tx_count=supervisor_tx_count,
-                         receiver_tx_count=receiver_tx_count,
-                         direct_usage_tx_count=direct_usage_tx_count,
                          combined_tx_count=combined_tx_count)
 
 @stock_bp.route('/out/<int:item_id>', methods=['GET', 'POST'])
