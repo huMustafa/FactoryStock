@@ -514,9 +514,9 @@ def usage_report():
         Transaction.executed_at <= end_of_day
     ).order_by(Transaction.executed_at.desc()).all()
     
-    # Build a single flat list of all usage records
-    # Each record: { name, total_kg, transaction_type, executed_at }
-    usage_records = []
+    # Group transactions by person (using normalize_name for matching)
+    # Each entry: { name, total_kg, transaction_count, latest_executed_at }
+    grouped_data = {}
     
     for tx in transactions:
         if tx.transaction_type == 'OUT':
@@ -525,7 +525,6 @@ def usage_report():
             if user and user.role == 'supervisor':
                 # Supervisor usage
                 name = user.username
-                source = 'supervisor'
             else:
                 # Receiver - extract from notes
                 receiver = None
@@ -536,17 +535,8 @@ def usage_report():
                         receiver = tx.notes.split('Handed to')[-1].strip()
                 if receiver:
                     name = receiver.strip().title()
-                    source = 'receiver'
                 else:
                     continue  # Skip if no receiver found
-            
-            usage_records.append({
-                'name': name,
-                'total_kg': float(tx.quantity_kg or 0),
-                'source': source,
-                'executed_at': tx.executed_at,
-                'transaction_count': 1
-            })
         
         elif tx.transaction_type == 'DIRECT_USAGE':
             # Direct usage - use given_to field
@@ -565,21 +555,37 @@ def usage_report():
             
             if not person_name:
                 person_name = 'Unknown'
-            
-            usage_records.append({
-                'name': person_name,
-                'total_kg': float(tx.quantity_kg or 0),
-                'source': 'direct_usage',
-                'executed_at': tx.executed_at,
-                'transaction_count': 1
-            })
+            name = person_name
+        
+        else:
+            continue
+        
+        # Normalize name for grouping
+        normalized = normalize_name(name)
+        
+        # Initialize or update grouped entry
+        if normalized not in grouped_data:
+            grouped_data[normalized] = {
+                'name': name,  # Keep original formatted name
+                'total_kg': 0.0,
+                'transaction_count': 0,
+                'latest_executed_at': tx.executed_at
+            }
+        
+        grouped_data[normalized]['total_kg'] += float(tx.quantity_kg or 0)
+        grouped_data[normalized]['transaction_count'] += 1
+        
+        # Keep the latest timestamp (since query is already ordered by desc, first one is latest)
+        if tx.executed_at > grouped_data[normalized]['latest_executed_at']:
+            grouped_data[normalized]['latest_executed_at'] = tx.executed_at
     
-    # Sort by executed_at descending (newest first)
-    usage_records.sort(key=lambda x: x['executed_at'], reverse=True)
+    # Convert to list and sort by latest_executed_at descending (newest first)
+    usage_records = list(grouped_data.values())
+    usage_records.sort(key=lambda x: x['latest_executed_at'], reverse=True)
     
-    # Calculate totals
+    # Calculate totals from grouped data
     combined_total_kg = sum(r['total_kg'] for r in usage_records)
-    combined_tx_count = len(usage_records)
+    combined_tx_count = sum(r['transaction_count'] for r in usage_records)
     
     return render_template('usage_report.html',
                          selected_date=selected_date,
