@@ -11,8 +11,7 @@ def sanitize_input(text, max_length=200):
     """Sanitize user input to prevent XSS"""
     if not text:
         return ''
-    # Remove potentially dangerous characters
-    text = re.sub(r'[<>\"\'&]', '', text)
+    # XSS prevention handled by Jinja2 auto-escaping in templates.
     return text[:max_length]
 
 def validate_float(value, min_val=0, max_val=1000000):
@@ -170,7 +169,8 @@ def fulfill_request(request_id):
     total_deducted_kg = 0
     
     for stock_id in stock_ids:
-        stock = Stock.query.get(int(stock_id))
+        # Use row-level locking to prevent race conditions
+        stock = Stock.query.with_for_update().get(int(stock_id))
         if not stock:
             flash(f'Stock record #{stock_id} not found.', 'error')
             return redirect(url_for('requests.fulfill_request_view', request_id=request_id))

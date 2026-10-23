@@ -7,6 +7,8 @@ import time
 import threading
 from collections import defaultdict
 import redis
+import json
+from zoneinfo import ZoneInfo
 from models import db, User, AuditLog
 from auth import auth_bp
 from stock import stock_bp
@@ -69,7 +71,9 @@ def rate_limit_login(ip, max_attempts=5, window_seconds=300):
 
 def create_app():
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(32).hex())
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+    if not app.config['SECRET_KEY']:
+        raise ValueError("No SECRET_KEY set for Flask application. Please set the SECRET_KEY environment variable in production.")
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///factory_stock.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
@@ -105,8 +109,8 @@ def create_app():
     @app.before_request
     def require_authentication():
         """Block ALL requests unless user is authenticated"""
-        # List of public endpoints (only login page)
-        public_endpoints = ['auth.login', 'static']
+        # List of public endpoints (only login page and health check)
+        public_endpoints = ['auth.login', 'static', 'health_check']
         
         # Get the endpoint name
         endpoint = request.endpoint
@@ -172,14 +176,14 @@ def create_app():
                     table_name=table_name,
                     record_id=record_id,
                     action=action,
-                    old_values=str(old_values) if old_values else None,
-                    new_values=str(new_values) if new_values else None,
+                    old_values=json.dumps(old_values) if old_values else None,
+                    new_values=json.dumps(new_values) if new_values else None,
                     changed_by=current_user.id
                 )
                 db.session.add(audit)
-                db.session.commit()
+                # Commit handled by the calling route to ensure atomicity.
             except Exception:
-                db.session.rollback()
+                pass  # Log failure should not break the main operation
     
     # Security event logging
     def log_security_event(event_type, details=None, severity='WARNING'):
@@ -213,6 +217,25 @@ def create_app():
     app.register_blueprint(requests_bp, url_prefix='/requests')
     app.register_blueprint(settings_bp, url_prefix='/settings')
     
+    # Error handlers
+    @app.errorhandler(404)
+    def not_found_error(error):
+        return render_template('errors/404.html'), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        db.session.rollback()
+        return render_template('errors/500.html'), 500
+
+    # Health check endpoint
+    @app.route('/health')
+    def health_check():
+        try:
+            db.session.execute(db.text('SELECT 1'))
+            return {'status': 'healthy', 'database': 'connected'}, 200
+        except Exception as e:
+            return {'status': 'unhealthy', 'database': str(e)}, 503
+
     # Context processor to inject pending requests count
     @app.context_processor
     def inject_pending_requests():
@@ -232,9 +255,7 @@ def create_app():
     @app.template_filter('format_date')
     def format_date_filter(date, fmt='%d/%m/%Y'):
         if date:
-            from datetime import timedelta
-            # Convert UTC to GMT+5
-            local_date = date + timedelta(hours=5)
+            local_date = date.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Karachi"))
             return local_date.strftime(fmt)
         return ''
     

@@ -13,8 +13,7 @@ def sanitize_input(text, max_length=200):
     """Sanitize user input to prevent XSS"""
     if not text:
         return ''
-    # Remove potentially dangerous characters
-    text = re.sub(r'[<>\"\'&]', '', text)
+    # XSS prevention handled by Jinja2 auto-escaping in templates.
     return text[:max_length]
 
 def validate_float(value, min_val=0, max_val=1000000):
@@ -56,6 +55,7 @@ def stock_directory():
     # --- UPDATED SEARCH LOGIC ---
     if search:
         search_term = search.lower()
+        # WARNING: like('%...%') queries cannot use standard indexes and will degrade at scale.
         query = query.filter(
             or_(
                 func.lower(Item.buyer_name).like(f'%{search_term}%'),
@@ -454,6 +454,10 @@ def validate_stock_in_constraints(item_type, width, weight):
 @stock_bp.route('/audit')
 @login_required
 def audit_log():
+    if current_user.role not in ['owner', 'store_keeper']:
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('stock.stock_directory'))
+    
     trans_type = request.args.get('type', 'all')
     
         # Build query (Removed Item join because Transaction already has all item details)

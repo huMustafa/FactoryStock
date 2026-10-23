@@ -24,8 +24,7 @@ def sanitize_input(text, max_length=200):
     """Sanitize user input to prevent XSS"""
     if not text:
         return ''
-    # Remove potentially dangerous characters
-    text = re.sub(r'[<>\"\'&]', '', text)
+    # XSS prevention handled by Jinja2 auto-escaping in templates.
     return text[:max_length]
 
 @settings_bp.route('/')
@@ -93,6 +92,12 @@ def toggle_user(user_id):
         return jsonify({'error': 'Unauthorized'}), 403
     
     user = User.query.get_or_404(user_id)
+    
+    # Prevent self-deactivation
+    if user.id == current_user.id:
+        flash('You cannot deactivate your own account.', 'error')
+        return redirect(url_for('settings.settings'))
+    
     old_status = user.is_active
     user.is_active = not user.is_active
     db.session.commit()
@@ -140,6 +145,13 @@ def delete_zone(code):
         return jsonify({'error': 'Unauthorized'}), 403
     
     zone = Zone.query.get_or_404(code)
+    
+    # Prevent deletion if zone has stock
+    from models import Stock
+    if Stock.query.filter_by(zone_code=code).count() > 0:
+        flash('Cannot delete a zone that currently holds stock.', 'error')
+        return redirect(url_for('settings.settings'))
+    
     zone_code = zone.code
     zone_desc = zone.description
     db.session.delete(zone)

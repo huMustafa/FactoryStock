@@ -81,14 +81,14 @@ class Item(db.Model):
     __tablename__ = 'items'
     
     id = db.Column(db.Integer, primary_key=True)
-    item_type = db.Column(db.String(20), nullable=False)  # 'roll', 'sheet', 'bag'
-    material = db.Column(db.String(20), nullable=False)  # 'PE', 'HDPE', 'PP'
+    item_type = db.Column(db.String(20), nullable=False, index=True)  # 'roll', 'sheet', 'bag'
+    material = db.Column(db.String(20), nullable=False, index=True)  # 'PE', 'HDPE', 'PP'
     width_inches = db.Column(db.Float, nullable=True)
     length_inches = db.Column(db.Float, nullable=True)
-    micron_label = db.Column(db.String(20), nullable=False)  # e.g., "60", "60/120"
+    micron_label = db.Column(db.String(20), nullable=False, index=True)  # e.g., "60", "60/120"
     is_printed = db.Column(db.Boolean, default=False)
     print_details = db.Column(db.String(200), nullable=True)
-    buyer_name = db.Column(db.String(100), nullable=True)
+    buyer_name = db.Column(db.String(100), nullable=True, index=True)
     
     # Bag-specific fields
     gusset_inches = db.Column(db.Float, nullable=True)
@@ -154,8 +154,8 @@ class Stock(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
     zone_code = db.Column(db.String(10), db.ForeignKey('zones.code'), nullable=False)
-    quantity_pieces = db.Column(db.Float, nullable=False)
-    quantity_kg = db.Column(db.Float, nullable=False)
+    quantity_pieces = db.Column(db.Numeric(precision=10, scale=2), nullable=False)
+    quantity_kg = db.Column(db.Numeric(precision=10, scale=2), nullable=False)
     bundle_size = db.Column(db.Integer, nullable=True)
     date_received = db.Column(db.Date, nullable=False, default=datetime.utcnow)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -176,8 +176,8 @@ class Transaction(db.Model):
     is_printed = db.Column(db.Boolean)
     buyer_name = db.Column(db.String(100), nullable=True)
     zone_code = db.Column(db.String(10), nullable=True)
-    quantity_pieces = db.Column(db.Float, nullable=False)
-    quantity_kg = db.Column(db.Float, nullable=False)
+    quantity_pieces = db.Column(db.Numeric(precision=10, scale=2), nullable=False)
+    quantity_kg = db.Column(db.Numeric(precision=10, scale=2), nullable=False)
     
     # Bag-specific fields
     gusset_inches = db.Column(db.Float, nullable=True)
