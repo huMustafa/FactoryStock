@@ -709,8 +709,8 @@ def stock_out(item_id):
             flash("Please select at least one stock record.", "error")
             return redirect(request.url)
 
-        total_deducted_pieces = 0
-        total_deducted_kg = 0
+        total_deducted_pieces = 0.0
+        total_deducted_kg = 0.0
 
         for stock_id in stock_ids:
             stock = db.session.get(Stock, int(stock_id))
@@ -720,21 +720,26 @@ def stock_out(item_id):
             # Deduct exactly 1 piece per selected stock record
             qty = 1.0
 
-            if stock.quantity_pieces < qty:
+            # Cast Decimal to float for comparison and arithmetic
+            available_pieces = (
+                float(stock.quantity_pieces) if stock.quantity_pieces else 0.0
+            )
+
+            if available_pieces < qty:
                 flash(f"Insufficient stock in record #{stock_id}.", "error")
                 return redirect(request.url)
 
-            # Calculate proportional KG
-            original_pieces = stock.quantity_pieces
-            if original_pieces > 0:
-                kg_ratio = stock.quantity_kg / original_pieces
+            # Calculate proportional KG - cast to float to avoid Decimal issues
+            available_kg = float(stock.quantity_kg) if stock.quantity_kg else 0.0
+            if available_pieces > 0:
+                kg_ratio = available_kg / available_pieces
                 deduct_kg = qty * kg_ratio
             else:
-                deduct_kg = 0
+                deduct_kg = 0.0
 
-            # Deduct from stock
-            stock.quantity_pieces -= qty
-            stock.quantity_kg -= deduct_kg
+            # Deduct from stock - cast to float for arithmetic
+            stock.quantity_pieces = available_pieces - qty
+            stock.quantity_kg = available_kg - deduct_kg
             total_deducted_pieces += qty
             total_deducted_kg += deduct_kg
 
