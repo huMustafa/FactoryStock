@@ -581,9 +581,11 @@ def usage_report():
     else:
         selected_date = datetime.now().date()
 
-    # Query OUT and DIRECT_USAGE transactions for the selected date using date range (handles timezone issues)
-    start_of_day = datetime.combine(selected_date, time.min)
-    end_of_day = datetime.combine(selected_date, time.max)
+    # Query OUT and DIRECT_USAGE transactions for the selected date
+    # Use UTC date boundaries since timestamps are stored in UTC
+    from datetime import timezone
+    start_of_day = datetime.combine(selected_date, time.min).replace(tzinfo=timezone.utc)
+    end_of_day = datetime.combine(selected_date, time.max).replace(tzinfo=timezone.utc)
 
     transactions = (
         Transaction.query.filter(
